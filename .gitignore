@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.env
+venv/
+.venv/
+
+# Dati runtime
+data/
+
+# PyInstaller
+*.spec.bak
+dist/
+build/
