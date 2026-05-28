@@ -440,7 +440,11 @@ class IscrizioniPanel(QWidget):
         if self._gara_id is None:
             return
         conn = get_connection()
-        iscritti_ids = qg.atleti_iscritti_ids(conn, self._gara_id)
+        # Nasconde gli atleti già iscritti a qualsiasi gara dello stesso evento
+        if self._evento_id:
+            iscritti_ids = qg.atleti_iscritti_evento_ids(conn, self._evento_id)
+        else:
+            iscritti_ids = qg.atleti_iscritti_ids(conn, self._gara_id)
         search = self.search_disp.text().strip()
         tutti = qa.get_all(conn, search=search)
 

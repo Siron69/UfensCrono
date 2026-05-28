@@ -1,4 +1,11 @@
-"""Export classifica to .xlsx with three sheets: Assoluta, Per Categoria, Per Sesso."""
+"""Export classifica to .xlsx.
+
+Fogli prodotti (in ordine):
+  1. Assoluta
+  2. Uomini (classifica di sesso M)
+  3. Donne  (classifica di sesso F)
+  4. Una sheet per ogni categoria (es. M18-24, M25-29 … F18-24 …)
+"""
 
 import os
 from datetime import datetime
@@ -82,21 +89,19 @@ def _sheet_assoluta(wb: openpyxl.Workbook, righe: list[RigaClassifica]) -> None:
         ], grayed=grayed)
 
 
-def _sheet_per_categoria(wb: openpyxl.Workbook, righe: list[RigaClassifica]) -> None:
-    ws = wb.create_sheet("Per Categoria")
+def _sheet_categoria(wb: openpyxl.Workbook, nome_cat: str, righe_cat: list[RigaClassifica]) -> None:
+    """Crea un foglio dedicato a una singola categoria."""
+    # I nomi dei fogli Excel non possono superare 31 caratteri
+    ws = wb.create_sheet(nome_cat[:31])
     ws.freeze_panes = "A2"
 
-    headers = ["Pos.Cat.", "Pett.", "Atleta", "Categoria", "Sesso", "Tempo", "Stato"]
-    widths  = [9,           8,       28,        14,          8,       12,      8]
+    headers = ["Pos.", "Pett.", "Atleta", "Tempo", "Stato"]
+    widths  = [6,       8,       32,       12,      8]
     _header_row(ws, headers, widths)
 
     sorted_rows = sorted(
-        righe,
-        key=lambda r: (
-            r.categoria,
-            0 if r.pos_categoria else 1,
-            r.pos_categoria or 9999,
-        ),
+        righe_cat,
+        key=lambda r: (0 if r.pos_categoria else 1, r.pos_categoria or 9999),
     )
     for i, r in enumerate(sorted_rows, start=2):
         grayed = r.stato in ("dsq", "dnf", "dns")
@@ -104,8 +109,6 @@ def _sheet_per_categoria(wb: openpyxl.Workbook, righe: list[RigaClassifica]) -> 
             r.pos_categoria if r.pos_categoria else "—",
             r.pettorale,
             r.nome_atleta,
-            r.categoria,
-            r.sesso,
             r.tempo_display,
             _STATO_LABELS.get(r.stato, r.stato or "—"),
         ], grayed=grayed)
@@ -150,9 +153,14 @@ def esporta_xlsx(
     wb = openpyxl.Workbook()
 
     _sheet_assoluta(wb, righe)
-    _sheet_per_categoria(wb, righe)
     _sheet_per_sesso(wb, righe, "M", "Uomini")
     _sheet_per_sesso(wb, righe, "F", "Donne")
+
+    # Un foglio per ogni categoria, nello stesso ordine dell'app
+    categorie = sorted({r.categoria for r in righe if r.categoria})
+    for nome_cat in categorie:
+        righe_cat = [r for r in righe if r.categoria == nome_cat]
+        _sheet_categoria(wb, nome_cat, righe_cat)
 
     # Metadata
     wb.properties.title = f"Classifica — {nome_gara}"

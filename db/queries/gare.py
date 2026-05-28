@@ -244,6 +244,18 @@ def atleti_iscritti_ids(conn: sqlite3.Connection, gara_id: int) -> set[int]:
     return {r['atleta_id'] for r in rows}
 
 
+def atleti_iscritti_evento_ids(conn: sqlite3.Connection, evento_id: int) -> set[int]:
+    """Restituisce gli id degli atleti iscritti ad almeno una gara dell'evento."""
+    rows = conn.execute(
+        """SELECT DISTINCT i.atleta_id
+           FROM iscrizioni i
+           JOIN gare g ON g.id = i.gara_id
+           WHERE g.evento_id = ?""",
+        (evento_id,),
+    ).fetchall()
+    return {r['atleta_id'] for r in rows}
+
+
 # ── Categorie ────────────────────────────────────────────────────────────────
 
 _SELECT_CAT = "SELECT id, gara_id, nome, sesso, eta_min, eta_max, ordine FROM categorie"

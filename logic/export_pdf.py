@@ -226,38 +226,17 @@ def esporta_pdf(
     story.append(t)
     story.append(PageBreak())
 
-    # ── Section 2: Per Categoria ─────────────────────────────────────────
-    story.append(Paragraph("Classifica per Categoria", styles["section"]))
-
-    per_cat = sorted(
-        righe,
-        key=lambda r: (r.categoria, 0 if r.pos_categoria else 1, r.pos_categoria or 9999),
-    )
-    t2 = _make_table(
-        ["Pos.", "Pett.", "Atleta", "Categoria", "Sesso", "Tempo", "Stato"],
-        cw[:7],
-        per_cat,
-        lambda r: [
-            str(r.pos_categoria) if r.pos_categoria else "—",
-            r.pettorale, r.nome_atleta, r.categoria, r.sesso,
-            r.tempo_display, _STATO_LABELS.get(r.stato, "—"),
-        ],
-        usable_w,
-    )
-    story.append(t2)
-    story.append(PageBreak())
-
-    # ── Section 3: Per Sesso ─────────────────────────────────────────────
+    # ── Section 2 & 3: Per Sesso ─────────────────────────────────────────
+    cw6 = [usable_w * p for p in [0.08, 0.09, 0.35, 0.18, 0.18, 0.12]]
     for sesso_code, sesso_label in [("M", "Uomini"), ("F", "Donne")]:
         filtered = sorted(
-            [r for r in righe if r.sesso.upper() in (sesso_code,)],
+            [r for r in righe if r.sesso.upper() == sesso_code],
             key=lambda r: (0 if r.pos_sesso else 1, r.pos_sesso or 9999),
         )
         if not filtered:
             continue
         story.append(Paragraph(f"Classifica {sesso_label}", styles["section"]))
-        cw6 = [usable_w * p for p in [0.08, 0.09, 0.35, 0.18, 0.18, 0.12]]
-        t3 = _make_table(
+        t2 = _make_table(
             ["Pos.", "Pett.", "Atleta", "Cat.", "Tempo", "Stato"],
             cw6,
             filtered,
@@ -268,8 +247,37 @@ def esporta_pdf(
             ],
             usable_w,
         )
-        story.append(t3)
-        story.append(Spacer(1, 8 * mm))
+        story.append(t2)
+        story.append(Spacer(1, 6 * mm))
+
+    story.append(PageBreak())
+
+    # ── Sezioni per-categoria (una per categoria, come nell'app) ─────────
+    cw5 = [usable_w * p for p in [0.08, 0.09, 0.45, 0.22, 0.16]]
+    categorie = sorted({r.categoria for r in righe if r.categoria})
+    for nome_cat in categorie:
+        cat_righe = sorted(
+            [r for r in righe if r.categoria == nome_cat],
+            key=lambda r: (0 if r.pos_categoria else 1, r.pos_categoria or 9999),
+        )
+        if not cat_righe:
+            continue
+        section_elems = [
+            Paragraph(nome_cat, styles["section"]),
+            _make_table(
+                ["Pos.", "Pett.", "Atleta", "Tempo", "Stato"],
+                cw5,
+                cat_righe,
+                lambda r: [
+                    str(r.pos_categoria) if r.pos_categoria else "—",
+                    r.pettorale, r.nome_atleta,
+                    r.tempo_display, _STATO_LABELS.get(r.stato, "—"),
+                ],
+                usable_w,
+            ),
+            Spacer(1, 6 * mm),
+        ]
+        story.append(KeepTogether(section_elems))
 
     doc.build(story)
     return dest_path
