@@ -86,6 +86,8 @@ class ClassifichePanel(QWidget):
         self._nome_gara: str = ""
         self._nome_evento: str = ""
         self._righe: list[RigaClassifica] = []
+        self._n_cat_tabs: int = 0                    # tab di categoria inserite dinamicamente
+        self._cat_tables: dict[str, QTableWidget] = {}  # nome_categoria → tabella
         self._build_ui()
 
     # ── Build UI ──────────────────────────────────────────────────────────
@@ -136,11 +138,6 @@ class ClassifichePanel(QWidget):
         )
         self.tabs.addTab(self.tbl_assoluta, "Assoluta")
 
-        self.tbl_categorie = self._make_table(
-            ["Pos.Cat.", "Pett.", "Atleta", "Categoria", "Sesso", "Tempo", "Stato"]
-        )
-        self.tabs.addTab(self.tbl_categorie, "Per Categoria")
-
         self.tbl_uomini = self._make_table(
             ["Pos.", "Pett.", "Atleta", "Cat.", "Tempo", "Stato"]
         )
@@ -170,6 +167,18 @@ class ClassifichePanel(QWidget):
         t.doubleClicked.connect(lambda _idx, tbl=t: self._on_edit(tbl))
         return t
 
+    def _rebuild_cat_tabs(self, categorie: list[str]) -> None:
+        """Remove old per-category tabs and insert fresh ones after 'Assoluta'."""
+        # Tab layout: 0=Assoluta, 1..n_cat=categories, n_cat+1=Uomini, n_cat+2=Donne
+        for _ in range(self._n_cat_tabs):
+            self.tabs.removeTab(1)      # removes at index 1 repeatedly (shifts left)
+        self._cat_tables.clear()
+        self._n_cat_tabs = len(categorie)
+        for i, nome_cat in enumerate(categorie):
+            tbl = self._make_table(["Pos.", "Pett.", "Atleta", "Tempo", "Stato"])
+            self._cat_tables[nome_cat] = tbl
+            self.tabs.insertTab(1 + i, tbl, nome_cat)
+
     # ── Data loading ──────────────────────────────────────────────────────
 
     def set_gara(self, gara_id: int) -> None:
@@ -198,6 +207,9 @@ class ClassifichePanel(QWidget):
             self._nome_evento = ev_nome
             rows = qr.get_classifica_raw(conn, self._gara_id)
             self._righe = calcola_classifica([from_row(r) for r in rows])
+            # Build dynamic per-category tabs from the categories present in righe
+            categorie = sorted({r.categoria for r in self._righe if r.categoria})
+            self._rebuild_cat_tabs(categorie)
             has_data = bool(self._righe)
             self.btn_xlsx.setEnabled(has_data)
             self.btn_pdf.setEnabled(has_data)
@@ -235,23 +247,19 @@ class ClassifichePanel(QWidget):
             lambda r: _STATO_LABELS.get(r.stato, r.stato or "—"),
         ])
 
-        per_cat = sorted(
-            self._righe,
-            key=lambda r: (
-                r.categoria,
-                0 if r.pos_categoria else 1,
-                r.pos_categoria or 9999,
-            ),
-        )
-        self._fill_table(self.tbl_categorie, per_cat, [
-            lambda r: str(r.pos_categoria) if r.pos_categoria else "—",
-            lambda r: r.pettorale,
-            lambda r: r.nome_atleta,
-            lambda r: r.categoria,
-            lambda r: r.sesso,
-            lambda r: r.tempo_display,
-            lambda r: _STATO_LABELS.get(r.stato, r.stato or "—"),
-        ])
+        # Per-category tabs (one tab per category)
+        for nome_cat, tbl in self._cat_tables.items():
+            cat_righe = sorted(
+                [r for r in self._righe if r.categoria == nome_cat],
+                key=lambda r: (0 if r.pos_categoria else 1, r.pos_categoria or 9999),
+            )
+            self._fill_table(tbl, cat_righe, [
+                lambda r: str(r.pos_categoria) if r.pos_categoria else "—",
+                lambda r: r.pettorale,
+                lambda r: r.nome_atleta,
+                lambda r: r.tempo_display,
+                lambda r: _STATO_LABELS.get(r.stato, r.stato or "—"),
+            ])
 
         uomini = sorted(
             [r for r in self._righe if r.sesso.upper() in ("M", "MASCHIO")],

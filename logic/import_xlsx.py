@@ -47,7 +47,8 @@ def _normalize_col(header) -> str:
     s = s.replace('﻿', '')       # BOM
     s = s.replace(' ', ' ')      # spazio non-breaking → spazio normale
     s = unicodedata.normalize('NFC', s)  # à = a+combining → à (precomposta)
-    return s.strip().lower()
+    s = ' '.join(s.split())              # collassa spazi multipli/tab
+    return s.lower()
 
 
 # Mapping nome colonna (lowercase, normalizzato) → (campo_db, tabella)
@@ -81,6 +82,28 @@ _COL_MAP: dict[str, tuple[str, str]] = {
     'codice chip':          ('codice_chip',       'iscrizioni'),
     'quota':                ('quota',             'iscrizioni'),
     'stato lw':             ('stato_lw',          'iscrizioni'),
+    # ── Alias comuni (varianti di nome colonna) ──────────────────────────
+    'first name':           ('nome',              'atleti'),
+    'last name':            ('cognome',           'atleti'),
+    'surname':              ('cognome',           'atleti'),
+    'firstname':            ('nome',              'atleti'),
+    'lastname':             ('cognome',           'atleti'),
+    'data di nascita':      ('data_nascita',      'atleti'),
+    'date of birth':        ('data_nascita',      'atleti'),
+    'dob':                  ('data_nascita',      'atleti'),
+    'birth date':           ('data_nascita',      'atleti'),
+    'soc':                  ('societa',           'atleti'),
+    'società sportiva':     ('societa',           'atleti'),
+    'associazione':         ('societa',           'atleti'),
+    'club':                 ('societa',           'atleti'),
+    'gender':               ('sesso',             'atleti'),
+    'sex':                  ('sesso',             'atleti'),
+    'bib':                  ('pettorale',         'iscrizioni'),
+    'bib number':           ('pettorale',         'iscrizioni'),
+    'numero pettorale':     ('pettorale',         'iscrizioni'),
+    'chip':                 ('codice_chip',       'iscrizioni'),
+    'cf':                   ('codice_fiscale',    'atleti'),
+    'fiscal code':          ('codice_fiscale',    'atleti'),
 }
 
 
