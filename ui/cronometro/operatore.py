@@ -433,6 +433,11 @@ class CronometroPanel(QWidget):
         self.btn_apri_display.setEnabled(True)
         self.lbl_stato.setText("Stato: In corso")
         self.bib_input.setEnabled(True)
+        # Ricarica la lista atleti ora che la gara è in_corso:
+        # senza questa chiamata _gare_attive e _iscrizioni_cache restano
+        # quelli costruiti quando la gara era in bozza (vuoti), impedendo
+        # la registrazione degli arrivi sia da bottone che da pettorale.
+        self._refresh_in_gara()
         self.bib_input.setFocus()
 
     def _on_concludi(self) -> None:
