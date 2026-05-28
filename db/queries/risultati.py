@@ -52,6 +52,31 @@ def count_arrivi(conn: sqlite3.Connection, gara_id: int) -> int:
     ).fetchone()[0]
 
 
+def pos_in_categoria(
+    conn: sqlite3.Connection,
+    gara_id: int,
+    categoria: str,
+    tempo_ms: int,
+) -> int:
+    """Posizione nell'ordine di arrivo per la categoria specificata.
+
+    Conta quanti atleti della stessa gara e categoria hanno un tempo
+    valido ≤ tempo_ms (incluso l'atleta appena inserito). Restituisce
+    quindi direttamente la posizione (1-based).
+    """
+    count = conn.execute(
+        """SELECT COUNT(*) FROM risultati r
+           JOIN iscrizioni i ON i.id = r.iscrizione_id
+           WHERE i.gara_id = ?
+             AND COALESCE(i.categoria_override, i.categoria_calc) = ?
+             AND (r.stato IS NULL OR r.stato IN ('', 'ok'))
+             AND r.tempo_ms IS NOT NULL
+             AND r.tempo_ms <= ?""",
+        (gara_id, categoria, tempo_ms),
+    ).fetchone()[0]
+    return count
+
+
 def insert_arrivo(
     conn: sqlite3.Connection,
     iscrizione_id: int,

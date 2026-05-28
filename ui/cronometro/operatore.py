@@ -134,6 +134,7 @@ from db.queries import eventi as qev
 from db.queries import risultati as qr
 from logic.timer import CronoThread
 from logic.backup import crea_backup
+from logic.classifica import calcola_classifica, from_row
 from utils.tempo import ms_to_str
 from ui.cronometro.display import CronoDisplay
 
@@ -235,8 +236,10 @@ class CronometroPanel(QWidget):
         self.lbl_arrivi_count.setStyleSheet("font-weight: bold;")
         al.addWidget(self.lbl_arrivi_count)
 
-        self.tbl_arrivi = QTableWidget(0, 5)
-        self.tbl_arrivi.setHorizontalHeaderLabels(["#", "Pett.", "Atleta", "Gara", "Tempo"])
+        self.tbl_arrivi = QTableWidget(0, 7)
+        self.tbl_arrivi.setHorizontalHeaderLabels(
+            ["#", "Pett.", "Atleta", "Gara", "Cat.", "Pos.Cat.", "Tempo"]
+        )
         self.tbl_arrivi.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_arrivi.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.tbl_arrivi.verticalHeader().setVisible(False)
@@ -485,14 +488,21 @@ class CronometroPanel(QWidget):
                 gara_nome = g.nome
                 break
 
-        # Aggiorna tabella arrivi operatore (5 colonne: #, pett, atleta, gara, tempo)
+        # Aggiorna tabella arrivi operatore (7 colonne: #, pett, atleta, gara, cat, pos.cat, tempo)
         row = self.tbl_arrivi.rowCount()
         self.tbl_arrivi.insertRow(row)
         iscrizioni_map = self._get_iscrizioni_map()
         iscr = iscrizioni_map.get(iscrizione_id)
         nome = f"{iscr.atleta_cognome} {iscr.atleta_nome}" if iscr else pettorale
         categoria = iscr.categoria_effettiva or "" if iscr else ""
-        for col, text in enumerate([str(ordine), pettorale, nome, gara_nome, tempo_str]):
+
+        # Posizione nella categoria (conteggio arrivi con tempo ≤ attuale, stessa cat)
+        pos_cat_str = ""
+        if categoria:
+            pos_cat = qr.pos_in_categoria(conn, gara_id, categoria, delta_ms)
+            pos_cat_str = str(pos_cat) if pos_cat else ""
+
+        for col, text in enumerate([str(ordine), pettorale, nome, gara_nome, categoria, pos_cat_str, tempo_str]):
             self.tbl_arrivi.setItem(row, col, QTableWidgetItem(text))
         self.tbl_arrivi.scrollToBottom()
 
@@ -666,6 +676,16 @@ class CronometroPanel(QWidget):
         multi_gara = len(gare_con_arrivi) > 1
         self.tbl_arrivi.setColumnHidden(3, not multi_gara)
 
+        # Costruisce la classifica per gara per ricavare pos_categoria
+        classifica_per_gara: dict[int, dict[int, int]] = {}  # gara_id → {iscrizione_id: pos_cat}
+        for g in gare_con_arrivi:
+            raw = qr.get_classifica_raw(conn, g.id)
+            righe_class = calcola_classifica([from_row(r) for r in raw])
+            classifica_per_gara[g.id] = {
+                r.iscrizione_id: r.pos_categoria
+                for r in righe_class
+            }
+
         # Merge e ordina per tempo_ms
         all_arrivi: list[tuple] = []   # (gara, risultato)
         for g in gare_con_arrivi:
@@ -678,7 +698,10 @@ class CronometroPanel(QWidget):
             row = self.tbl_arrivi.rowCount()
             self.tbl_arrivi.insertRow(row)
             tempo_str = ms_to_str(r.tempo_ms) if r.tempo_ms is not None else "—"
-            texts = [str(idx), r.pettorale or "", r.nome_atleta, gara.nome, tempo_str]
+            categoria = r.categoria_effettiva or ""
+            pos_cat = classifica_per_gara.get(gara.id, {}).get(r.iscrizione_id)
+            pos_cat_str = str(pos_cat) if pos_cat else ""
+            texts = [str(idx), r.pettorale or "", r.nome_atleta, gara.nome, categoria, pos_cat_str, tempo_str]
             for col, text in enumerate(texts):
                 self.tbl_arrivi.setItem(row, col, QTableWidgetItem(text))
 
