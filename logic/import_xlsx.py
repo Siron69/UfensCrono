@@ -160,7 +160,7 @@ def riconosci_colonne(headers: list[str]) -> list[bool]:
 
 def leggi_xlsx_preview(path: str) -> tuple[list[str], list[list[str]]]:
     """Restituisce (intestazioni, prime 5 righe dati) come stringhe."""
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True, max_row=6))
     wb.close()
@@ -181,7 +181,7 @@ def importa_xlsx(
     result = ImportResult()
 
     # Carica workbook
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb.active
     all_rows = list(ws.iter_rows(values_only=True))
     wb.close()

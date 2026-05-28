@@ -15,6 +15,11 @@ Mostra:
 
 import sys
 import os
+import io
+
+# Forza stdout UTF-8 su Windows per evitare errori cp1252 con caratteri Unicode
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 # Assicura che il root del progetto sia nel path
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), '..'))
@@ -34,7 +39,7 @@ def _hr(char: str = '─', width: int = 70) -> None:
 def analizza_xlsx(path: str, sheet_index: int = 0) -> None:
     # ── Carica workbook ───────────────────────────────────────────────────
     print(f"\nFile: {path}")
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(path, data_only=True)
     sheet_names = wb.sheetnames
     print(f"Fogli disponibili ({len(sheet_names)}): {sheet_names}")
 
