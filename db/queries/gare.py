@@ -196,6 +196,42 @@ def update_iscrizione(conn: sqlite3.Connection, iscr: Iscrizione) -> None:
     conn.commit()
 
 
+def ricalcola_categorie_iscrizioni(
+    conn: sqlite3.Connection,
+    gara_id: int,
+    anno_gara: int,
+) -> int:
+    """Ricalcola categoria_calc per tutte le iscrizioni della gara.
+
+    Utile dopo aver aggiunto/modificato/eliminato categorie: aggiorna
+    in batch il campo categoria_calc di ogni iscrizione in base alle
+    definizioni di categoria correnti e alla data di nascita dell'atleta.
+
+    Returns:
+        Numero di iscrizioni aggiornate.
+    """
+    from logic.categorie import calcola_categoria   # import locale per evitare circolari
+
+    categorie = get_categorie(conn, gara_id)
+    iscrizioni = get_iscrizioni(conn, gara_id)
+
+    n = 0
+    for iscr in iscrizioni:
+        cat = calcola_categoria(
+            categorie,
+            iscr.atleta_data_nascita or "",
+            iscr.atleta_sesso or "",
+            anno_gara,
+        )
+        conn.execute(
+            "UPDATE iscrizioni SET categoria_calc = ? WHERE id = ?",
+            (cat, iscr.id),
+        )
+        n += 1
+    conn.commit()
+    return n
+
+
 def remove_iscrizione(conn: sqlite3.Connection, iscr_id: int) -> None:
     conn.execute("DELETE FROM iscrizioni WHERE id = ?", (iscr_id,))
     conn.commit()

@@ -611,26 +611,35 @@ class IscrizioniPanel(QWidget):
             qg.delete_categoria(conn, cat.id)
         for cat in genera_preset(self._gara_id, step):
             qg.insert_categoria(conn, cat)
+        # Ricalcola categoria_calc per tutti gli iscritti già presenti
+        qg.ricalcola_categorie_iscrizioni(conn, self._gara_id, self._anno_gara)
         self._refresh_categorie()
+        self._refresh_iscritti()
 
     def _on_add_cat(self) -> None:
         dlg = CategoriaDialog(self, self._gara_id)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            qg.insert_categoria(get_connection(), dlg.get_categoria())
+            conn = get_connection()
+            qg.insert_categoria(conn, dlg.get_categoria())
+            qg.ricalcola_categorie_iscrizioni(conn, self._gara_id, self._anno_gara)
             self._refresh_categorie()
+            self._refresh_iscritti()
 
     def _on_mod_cat(self) -> None:
         if not self.tbl_cat.selectedItems():
             return
         cat_id = self.tbl_cat.item(self.tbl_cat.currentRow(), 0).data(_ID_ROLE)
-        cats = qg.get_categorie(get_connection(), self._gara_id)
+        conn = get_connection()
+        cats = qg.get_categorie(conn, self._gara_id)
         cat = next((c for c in cats if c.id == cat_id), None)
         if not cat:
             return
         dlg = CategoriaDialog(self, self._gara_id, cat)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            qg.update_categoria(get_connection(), dlg.get_categoria())
+            qg.update_categoria(conn, dlg.get_categoria())
+            qg.ricalcola_categorie_iscrizioni(conn, self._gara_id, self._anno_gara)
             self._refresh_categorie()
+            self._refresh_iscritti()
 
     def _on_del_cat(self) -> None:
         if not self.tbl_cat.selectedItems():
@@ -640,8 +649,11 @@ class IscrizioniPanel(QWidget):
             self, "Conferma", "Eliminare questa categoria?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
-            qg.delete_categoria(get_connection(), cat_id)
+            conn = get_connection()
+            qg.delete_categoria(conn, cat_id)
+            qg.ricalcola_categorie_iscrizioni(conn, self._gara_id, self._anno_gara)
             self._refresh_categorie()
+            self._refresh_iscritti()
 
     def _on_import_xlsx(self) -> None:
         dlg = ImportWizard(self, gara_id=self._gara_id)
