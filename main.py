@@ -1,21 +1,16 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow
+from PyQt6.QtWidgets import QApplication
 from db.connection import get_connection, close_connection
-from db.migrations import get_version
+from ui.main_window import MainWindow
 
 
 def main() -> None:
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
 
-    conn = get_connection()
-    version = get_version(conn)
+    get_connection()
 
-    win = QMainWindow()
-    win.setWindowTitle("UfensCrono")
-    label = QLabel(f"DB pronto — schema v{version}")
-    label.setContentsMargins(20, 20, 20, 20)
-    win.setCentralWidget(label)
-    win.resize(400, 120)
+    win = MainWindow()
     win.show()
 
     result = app.exec()
