@@ -15,7 +15,7 @@ from reportlab.platypus import (
 )
 
 from logic.classifica import RigaClassifica
-from utils.paths import get_export_dir
+from utils.paths import get_export_dir, get_resource_path
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 _BLUE      = colors.HexColor("#2563EB")
@@ -57,21 +57,53 @@ def _build_styles():
     }
 
 
+_LOGO_PATH = get_resource_path('ui/media/logoUfens.png')
+_LOGO_H = 12 * mm   # altezza logo nell'intestazione
+
+
 def _page_header_footer(canvas, doc, nome_gara: str, nome_evento: str) -> None:
     canvas.saveState()
-    # Top rule
+
+    # ── Header: logo + nome gara ──────────────────────────────────────────
+    header_y = H - MARGIN + 2   # linea base dell'area header
+
+    # Logo (opzionale — silenzioso se il file manca)
+    logo_x = MARGIN
+    text_x = MARGIN
+    if os.path.isfile(_LOGO_PATH):
+        try:
+            canvas.drawImage(
+                _LOGO_PATH,
+                logo_x, header_y - _LOGO_H,
+                height=_LOGO_H,
+                width=_LOGO_H,   # quadrato, l'immagine è ritagliata/scalata
+                preserveAspectRatio=True,
+                mask='auto',
+            )
+            text_x = logo_x + _LOGO_H + 4 * mm
+        except Exception:
+            pass
+
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.setFillColor(_BLUE_DARK)
+    canvas.drawString(text_x, header_y - 9, nome_gara)
+    if nome_evento:
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(_GRAY_TXT)
+        canvas.drawString(text_x, header_y - 9 - 10, nome_evento)
+
+    # Linea separatrice
     canvas.setStrokeColor(_BLUE)
-    canvas.setLineWidth(2)
-    canvas.line(MARGIN, H - MARGIN + 4, W - MARGIN, H - MARGIN + 4)
-    # Footer
+    canvas.setLineWidth(1.5)
+    canvas.line(MARGIN, header_y - _LOGO_H - 2, W - MARGIN, header_y - _LOGO_H - 2)
+
+    # ── Footer ────────────────────────────────────────────────────────────
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(_GRAY_TXT)
     ts = datetime.now().strftime("%d/%m/%Y %H:%M")
     canvas.drawString(MARGIN, MARGIN - 8, f"UfensCrono — {ts}")
-    canvas.drawRightString(
-        W - MARGIN, MARGIN - 8,
-        f"Pagina {doc.page}",
-    )
+    canvas.drawRightString(W - MARGIN, MARGIN - 8, f"Pagina {doc.page}")
+
     canvas.restoreState()
 
 
@@ -152,13 +184,15 @@ def esporta_pdf(
     def on_page(canvas, doc):
         _page_header_footer(canvas, doc, nome_gara, nome_evento)
 
-    frame = Frame(MARGIN, MARGIN, usable_w, H - 2 * MARGIN, id="body")
+    # Header occupa MARGIN + logo_h + 4mm di separatore
+    top_margin = MARGIN + _LOGO_H + 6 * mm
+    frame = Frame(MARGIN, MARGIN + 6, usable_w, H - top_margin - MARGIN - 6, id="body")
     page_tpl = PageTemplate(id="main", frames=[frame], onPage=on_page)
     doc = BaseDocTemplate(
         dest_path,
         pagesize=A4,
         leftMargin=MARGIN, rightMargin=MARGIN,
-        topMargin=MARGIN, bottomMargin=MARGIN + 6,
+        topMargin=top_margin, bottomMargin=MARGIN + 6,
         pageTemplates=[page_tpl],
     )
 

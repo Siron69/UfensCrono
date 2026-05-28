@@ -1,11 +1,12 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QLabel, QTableWidget,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QHeaderView,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap
 
 from utils.tempo import ms_to_str
+from utils.paths import get_resource_path
 
 
 class CronoDisplay(QMainWindow):
@@ -22,8 +23,20 @@ class CronoDisplay(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(24)
+        layout.setContentsMargins(32, 24, 32, 32)
+        layout.setSpacing(16)
+
+        # Logo Ufens
+        logo_pix = QPixmap(get_resource_path('ui/media/logoUfens.png'))
+        if not logo_pix.isNull():
+            lbl_logo = QLabel()
+            lbl_logo.setPixmap(
+                logo_pix.scaledToHeight(
+                    90, Qt.TransformationMode.SmoothTransformation
+                )
+            )
+            lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(lbl_logo)
 
         # Timer
         self.lbl_timer = QLabel("0:00.000")
