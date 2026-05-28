@@ -22,6 +22,7 @@ _STATO_LABEL = {
 
 class GareLista(QWidget):
     apri_iscrizioni = pyqtSignal(int)   # gara_id
+    apri_cronometro = pyqtSignal(int)   # gara_id
     indietro = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -74,6 +75,11 @@ class GareLista(QWidget):
         self.btn_iscrizioni.clicked.connect(self._on_iscrizioni)
         actions.addWidget(self.btn_iscrizioni)
 
+        self.btn_cronometro = QPushButton("Avvia cronometro →")
+        self.btn_cronometro.setEnabled(False)
+        self.btn_cronometro.clicked.connect(self._on_cronometro)
+        actions.addWidget(self.btn_cronometro)
+
         self.btn_modifica = QPushButton("Modifica")
         self.btn_modifica.setEnabled(False)
         self.btn_modifica.clicked.connect(self._on_modifica)
@@ -123,9 +129,11 @@ class GareLista(QWidget):
 
     def _update_buttons(self) -> None:
         has = bool(self.table.selectedItems())
+        stato = self._selected_stato()
         self.btn_iscrizioni.setEnabled(has)
-        self.btn_modifica.setEnabled(has and self._selected_stato() == "bozza")
-        self.btn_elimina.setEnabled(has and self._selected_stato() == "bozza")
+        self.btn_cronometro.setEnabled(has and stato in ("bozza", "in_corso"))
+        self.btn_modifica.setEnabled(has and stato == "bozza")
+        self.btn_elimina.setEnabled(has and stato == "bozza")
 
     def _selected_id(self) -> int | None:
         if not self.table.selectedItems():
@@ -180,3 +188,8 @@ class GareLista(QWidget):
         gid = self._selected_id()
         if gid is not None:
             self.apri_iscrizioni.emit(gid)
+
+    def _on_cronometro(self) -> None:
+        gid = self._selected_id()
+        if gid is not None:
+            self.apri_cronometro.emit(gid)

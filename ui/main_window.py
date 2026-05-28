@@ -8,6 +8,7 @@ from ui.atleti.lista import AtletiLista
 from ui.eventi.lista import EventiLista
 from ui.gare.lista import GareLista
 from ui.gare.iscrizioni import IscrizioniPanel
+from ui.cronometro.operatore import CronometroPanel
 
 _NAV_STYLE_ACTIVE = """
     QPushButton {
@@ -26,12 +27,11 @@ _NAV_STYLE_NORMAL = """
     QPushButton:disabled { color: #94a3b8; }
 """
 
-# indici nel QStackedWidget
-_IDX_ATLETI = 0
-_IDX_EVENTI = 1
-_IDX_GARE = 2
-_IDX_ISCRIZIONI = 3
-_IDX_CRONOMETRO = 4
+_IDX_ATLETI      = 0
+_IDX_EVENTI      = 1
+_IDX_GARE        = 2
+_IDX_ISCRIZIONI  = 3
+_IDX_CRONOMETRO  = 4
 _IDX_CLASSIFICHE = 5
 
 
@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("UfensCrono")
         self.setMinimumSize(1100, 700)
-        self._nav_buttons: list[QPushButton] = []
+        self._nav_buttons: list[tuple] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -77,33 +77,34 @@ class MainWindow(QMainWindow):
         # 2 – Gare
         self._gare = GareLista()
         self._gare.apri_iscrizioni.connect(self._on_apri_iscrizioni)
+        self._gare.apri_cronometro.connect(self._on_apri_cronometro)
         self._gare.indietro.connect(lambda: self._navigate(_IDX_EVENTI))
         self.stack.addWidget(self._gare)
 
-        # 3 – Iscrizioni (non nella sidebar)
+        # 3 – Iscrizioni
         self._iscrizioni = IscrizioniPanel()
         self._iscrizioni.indietro.connect(lambda: self._navigate(_IDX_GARE))
         self.stack.addWidget(self._iscrizioni)
 
-        # 4 – Cronometro (placeholder)
-        self.stack.addWidget(self._placeholder("Cronometro"))
+        # 4 – Cronometro
+        self._cronometro = CronometroPanel()
+        self._cronometro.indietro.connect(self._on_cronometro_indietro)
+        self.stack.addWidget(self._cronometro)
 
         # 5 – Classifiche (placeholder)
         self.stack.addWidget(self._placeholder("Classifiche"))
 
-        # Nav buttons (solo le sezioni principali visibili in sidebar)
         nav_items = [
-            ("Atleti", _IDX_ATLETI),
-            ("Eventi", _IDX_EVENTI),
-            ("Gare", _IDX_GARE),
-            ("Cronometro", _IDX_CRONOMETRO),
-            ("Classifiche", _IDX_CLASSIFICHE),
+            ("Atleti",      _IDX_ATLETI,      True),
+            ("Eventi",      _IDX_EVENTI,      True),
+            ("Gare",        _IDX_GARE,        True),
+            ("Cronometro",  _IDX_CRONOMETRO,  True),
+            ("Classifiche", _IDX_CLASSIFICHE, False),
         ]
-        for label, idx in nav_items:
+        for label, idx, ready in nav_items:
             btn = QPushButton(label)
-            is_ready = idx in (_IDX_ATLETI, _IDX_EVENTI, _IDX_GARE)
-            btn.setEnabled(is_ready)
-            if is_ready:
+            btn.setEnabled(ready)
+            if ready:
                 btn.clicked.connect(lambda checked, i=idx: self._navigate(i))
             btn.setStyleSheet(_NAV_STYLE_NORMAL)
             sb.addWidget(btn)
@@ -139,3 +140,11 @@ class MainWindow(QMainWindow):
     def _on_apri_iscrizioni(self, gara_id: int) -> None:
         self._iscrizioni.set_gara(gara_id)
         self._navigate(_IDX_ISCRIZIONI)
+
+    def _on_apri_cronometro(self, gara_id: int) -> None:
+        self._cronometro.set_gara(gara_id)
+        self._navigate(_IDX_CRONOMETRO)
+
+    def _on_cronometro_indietro(self) -> None:
+        self._navigate(_IDX_GARE)
+        self._gare.refresh()

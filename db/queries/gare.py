@@ -61,6 +61,19 @@ def delete(conn: sqlite3.Connection, gara_id: int) -> None:
     conn.commit()
 
 
+def avvia_gara(conn: sqlite3.Connection, gara_id: int, start_ts: float, start_wall: str) -> None:
+    conn.execute(
+        "UPDATE gare SET stato='in_corso', start_ts=?, start_wall=? WHERE id=?",
+        (start_ts, start_wall, gara_id),
+    )
+    conn.commit()
+
+
+def concludi_gara(conn: sqlite3.Connection, gara_id: int) -> None:
+    conn.execute("UPDATE gare SET stato='conclusa' WHERE id=?", (gara_id,))
+    conn.commit()
+
+
 # ── Iscrizioni ───────────────────────────────────────────────────────────────
 
 _SELECT_ISCR = """
