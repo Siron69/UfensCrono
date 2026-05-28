@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QPushButton, QLabel,
     QLineEdit, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QSpinBox, QMessageBox, QHeaderView, QGroupBox,
+    QButtonGroup, QRadioButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -14,6 +15,7 @@ from db.queries import atleti as qa
 from db.queries import eventi as qev
 from models.gara import Iscrizione, Categoria
 from logic.categorie import calcola_categoria
+from logic.preset_categorie import genera_preset, PRESETS
 from ui.atleti.import_wizard import ImportWizard
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
@@ -154,6 +156,94 @@ class CategoriaDialog(QDialog):
         return self._cat
 
 
+# ── Dialog: preset categorie ────────────────────────────────────────────────
+
+class PresetCategorieDialog(QDialog):
+    """Permette di scegliere un preset e mostra l'anteprima delle categorie."""
+
+    def __init__(self, parent, gara_id: int, n_esistenti: int):
+        super().__init__(parent)
+        self._gara_id = gara_id
+        self._selected_step: int = next(iter(PRESETS))   # primo preset come default
+        self.setWindowTitle("Preset categorie")
+        self.setMinimumWidth(440)
+        self._build_ui(n_esistenti)
+
+    def _build_ui(self, n_esistenti: int) -> None:
+        layout = QVBoxLayout(self)
+
+        # Avviso se ci sono già categorie
+        if n_esistenti > 0:
+            warn = QLabel(
+                f"⚠  Ci sono già <b>{n_esistenti}</b> categorie definite. "
+                "Applicando il preset verranno <b>sostituite</b>."
+            )
+            warn.setTextFormat(Qt.TextFormat.RichText)
+            warn.setWordWrap(True)
+            warn.setStyleSheet(
+                "color: #92400e; background: #fef3c7; "
+                "padding: 7px 10px; border-radius: 4px;"
+            )
+            layout.addWidget(warn)
+
+        layout.addWidget(QLabel("Scegli il preset:"))
+
+        self._btn_group = QButtonGroup(self)
+        for i, (step, label) in enumerate(PRESETS.items()):
+            rb = QRadioButton(label)
+            rb.setChecked(i == 0)
+            rb.toggled.connect(lambda checked, s=step: self._on_toggle(checked, s))
+            self._btn_group.addButton(rb)
+            layout.addWidget(rb)
+
+        layout.addWidget(QLabel("Anteprima:"))
+
+        self._preview = QTableWidget(0, 4)
+        self._preview.setHorizontalHeaderLabels(["Nome", "Sesso", "Età min", "Età max"])
+        self._preview.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._preview.verticalHeader().setVisible(False)
+        self._preview.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self._preview.setMinimumHeight(200)
+        layout.addWidget(self._preview)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Applica")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Annulla")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._refresh_preview()
+
+    def _on_toggle(self, checked: bool, step: int) -> None:
+        if checked:
+            self._selected_step = step
+            self._refresh_preview()
+
+    def _refresh_preview(self) -> None:
+        cats = genera_preset(self._gara_id, self._selected_step)
+        self._preview.setRowCount(0)
+        for cat in cats:
+            row = self._preview.rowCount()
+            self._preview.insertRow(row)
+            items = [
+                cat.nome,
+                cat.sesso,
+                str(cat.eta_min),
+                str(cat.eta_max) if cat.eta_max is not None else "—",
+            ]
+            for col, text in enumerate(items):
+                self._preview.setItem(row, col, QTableWidgetItem(text))
+
+    def get_step(self) -> int:
+        return self._selected_step
+
+
 # ── Pannello principale iscrizioni ───────────────────────────────────────────
 
 class IscrizioniPanel(QWidget):
@@ -273,6 +363,12 @@ class IscrizioniPanel(QWidget):
         cl.addWidget(self.tbl_cat)
 
         cat_btns = QHBoxLayout()
+
+        self.btn_preset_cat = QPushButton("Preset…")
+        self.btn_preset_cat.setToolTip("Applica un set di categorie predefinito (5 a 5 o 10 a 10)")
+        self.btn_preset_cat.clicked.connect(self._on_preset_cat)
+        cat_btns.addWidget(self.btn_preset_cat)
+
         self.btn_add_cat = QPushButton("+ Categoria")
         self.btn_add_cat.clicked.connect(self._on_add_cat)
         cat_btns.addWidget(self.btn_add_cat)
@@ -500,6 +596,22 @@ class IscrizioniPanel(QWidget):
             self._update_buttons()
 
     # ── Azioni categorie ──────────────────────────────────────────────────
+
+    def _on_preset_cat(self) -> None:
+        if self._gara_id is None:
+            return
+        conn = get_connection()
+        esistenti = qg.get_categorie(conn, self._gara_id)
+        dlg = PresetCategorieDialog(self, self._gara_id, len(esistenti))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        step = dlg.get_step()
+        # Sostituisce le categorie esistenti con il preset scelto
+        for cat in esistenti:
+            qg.delete_categoria(conn, cat.id)
+        for cat in genera_preset(self._gara_id, step):
+            qg.insert_categoria(conn, cat)
+        self._refresh_categorie()
 
     def _on_add_cat(self) -> None:
         dlg = CategoriaDialog(self, self._gara_id)
