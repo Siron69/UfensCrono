@@ -261,9 +261,35 @@ class CronometroPanel(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Backup fallito", f"Impossibile creare il backup:\n{e}\n\nProcedo comunque.")
 
+        # ── Avvio multi-gara: check altre gare bozza nello stesso evento ──
+        gare_bozza = [g for g in qg.get_by_evento(conn, gara.evento_id)
+                      if g.stato == 'bozza']
+        avvia_tutte = False
+        if len(gare_bozza) > 1:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Avvio gara")
+            nomi_bozza = "\n".join(f"  • {g.nome}" for g in gare_bozza)
+            msg.setText(
+                f"L'evento ha {len(gare_bozza)} gare ancora in bozza:\n{nomi_bozza}"
+            )
+            msg.setInformativeText("Come vuoi procedere?")
+            btn_solo  = msg.addButton(f"Solo «{gara.nome}»",  QMessageBox.ButtonRole.AcceptRole)
+            btn_tutte = msg.addButton("Avvia tutte le gare",  QMessageBox.ButtonRole.ActionRole)
+            msg.addButton("Annulla",                          QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            clicked = msg.clickedButton()
+            if clicked == btn_tutte:
+                avvia_tutte = True
+            elif clicked != btn_solo:
+                return          # Annulla o X
+
         self._start_ts = time.perf_counter()
         start_wall = datetime.now().isoformat()
-        qg.avvia_gara(conn, self._gara_id, self._start_ts, start_wall)
+        if avvia_tutte:
+            for g in gare_bozza:
+                qg.avvia_gara(conn, g.id, self._start_ts, start_wall)
+        else:
+            qg.avvia_gara(conn, self._gara_id, self._start_ts, start_wall)
 
         self._avvia_thread()
         self.btn_avvia.setVisible(False)

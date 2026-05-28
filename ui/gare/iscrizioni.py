@@ -162,6 +162,7 @@ class IscrizioniPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._gara_id: int | None = None
+        self._evento_id: int | None = None
         self._anno_gara: int = 2025
         self._is_bozza: bool = True
         self._build_ui()
@@ -298,6 +299,7 @@ class IscrizioniPanel(QWidget):
         gara = qg.get_by_id(conn, gara_id)
         if gara:
             self._is_bozza = gara.stato == "bozza"
+            self._evento_id = gara.evento_id
             ev = qev.get_by_id(conn, gara.evento_id)
             anno = 2025
             if ev and ev.data:
@@ -404,7 +406,8 @@ class IscrizioniPanel(QWidget):
         cat_calc = calcola_categoria(
             categorie, atleta.data_nascita or "", atleta.sesso, self._anno_gara
         )
-        pettorale = qg.next_pettorale(conn, self._gara_id)
+        # Suggerisci il prossimo pettorale libero a livello di evento
+        pettorale = qg.next_pettorale_evento(conn, self._evento_id) if self._evento_id else qg.next_pettorale(conn, self._gara_id)
 
         dlg = IscrizioneDialog(
             self, atleta.nome_completo, self._anno_gara,
@@ -413,10 +416,22 @@ class IscrizioniPanel(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
+        # Validazione unicità pettorale cross-gara
+        nuovo_pett = dlg.get_pettorale()
+        if self._evento_id:
+            conflitto = qg.get_pettorale_conflitto(conn, self._evento_id, nuovo_pett, exclude_gara_id=self._gara_id)
+            if conflitto:
+                QMessageBox.warning(
+                    self, "Pettorale già in uso",
+                    f"Il pettorale «{nuovo_pett}» è già usato nella gara «{conflitto}» "
+                    f"dello stesso evento.\n\nScegli un numero diverso.",
+                )
+                return
+
         try:
             qg.add_iscrizione(
                 conn, self._gara_id, atleta_id,
-                dlg.get_pettorale(),
+                nuovo_pett,
                 categoria_calc=cat_calc,
                 categoria_override=dlg.get_categoria_override(),
             )
@@ -447,7 +462,19 @@ class IscrizioniPanel(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
-        iscr.pettorale = dlg.get_pettorale()
+        nuovo_pett = dlg.get_pettorale()
+        # Validazione unicità pettorale cross-gara (solo se il pettorale è cambiato)
+        if nuovo_pett != iscr.pettorale and self._evento_id:
+            conflitto = qg.get_pettorale_conflitto(conn, self._evento_id, nuovo_pett, exclude_gara_id=self._gara_id)
+            if conflitto:
+                QMessageBox.warning(
+                    self, "Pettorale già in uso",
+                    f"Il pettorale «{nuovo_pett}» è già usato nella gara «{conflitto}» "
+                    f"dello stesso evento.\n\nScegli un numero diverso.",
+                )
+                return
+
+        iscr.pettorale = nuovo_pett
         iscr.categoria_override = dlg.get_categoria_override()
         try:
             qg.update_iscrizione(conn, iscr)

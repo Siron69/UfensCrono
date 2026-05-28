@@ -200,8 +200,9 @@ def importa_xlsx(
             field_name, table = _COL_MAP[key]
             col_index[field_name] = (i, table)
 
-    # Info gara per categoria
+    # Info gara per categoria e validazione cross-gara
     gara = qg.get_by_id(conn, gara_id)
+    evento_id: Optional[int] = gara.evento_id if gara else None
     categorie: list[Categoria] = qg.get_categorie(conn, gara_id)
     anno_gara = 2025
     if gara:
@@ -290,6 +291,16 @@ def importa_xlsx(
             if not pettorale:
                 result.n_saltati += 1
                 continue
+
+            # Validazione unicità pettorale cross-gara
+            if evento_id:
+                gara_conflitto = qg.get_pettorale_conflitto(conn, evento_id, pettorale, exclude_gara_id=gara_id)
+                if gara_conflitto:
+                    result.errori.append((
+                        row_num,
+                        f"Pettorale {pettorale!r} già usato nella gara «{gara_conflitto}» dello stesso evento",
+                    ))
+                    continue
 
             cat_calc = calcola_categoria(categorie, dob, sesso, anno_gara)
 

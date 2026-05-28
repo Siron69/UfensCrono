@@ -130,6 +130,47 @@ def next_pettorale(conn: sqlite3.Connection, gara_id: int) -> str:
     return str(max(nums) + 1) if nums else "1"
 
 
+def next_pettorale_evento(conn: sqlite3.Connection, evento_id: int) -> str:
+    """Prossimo numero pettorale libero considerando tutte le gare dell'evento."""
+    rows = conn.execute(
+        """SELECT i.pettorale FROM iscrizioni i
+           JOIN gare g ON g.id = i.gara_id
+           WHERE g.evento_id = ?""",
+        (evento_id,),
+    ).fetchall()
+    nums = []
+    for r in rows:
+        try:
+            nums.append(int(r['pettorale']))
+        except ValueError:
+            pass
+    return str(max(nums) + 1) if nums else "1"
+
+
+def get_pettorale_conflitto(
+    conn: sqlite3.Connection,
+    evento_id: int,
+    pettorale: str,
+    exclude_gara_id: Optional[int] = None,
+) -> Optional[str]:
+    """Controlla se il pettorale è già usato in un'altra gara dello stesso evento.
+
+    Returns:
+        Nome della gara in cui è già usato, oppure None se il pettorale è libero.
+    """
+    q = """
+        SELECT g.nome FROM iscrizioni i
+        JOIN gare g ON g.id = i.gara_id
+        WHERE g.evento_id = ? AND i.pettorale = ?
+    """
+    params: list = [evento_id, pettorale]
+    if exclude_gara_id is not None:
+        q += " AND g.id != ?"
+        params.append(exclude_gara_id)
+    row = conn.execute(q, params).fetchone()
+    return row['nome'] if row else None
+
+
 def add_iscrizione(
     conn: sqlite3.Connection,
     gara_id: int,
