@@ -145,7 +145,7 @@ class CronometroPanel(QWidget):
     indietro = pyqtSignal()
 
     # Segnali verso la display
-    arrivoConfermato = pyqtSignal(str, int, str, str, str)  # pettorale, ordine, tempo_str, nome, cat
+    arrivoConfermato = pyqtSignal(str, int, str, str, str, str)  # pettorale, ordine, tempo_str, nome, cat, pos_cat_str
     arrivoAnnullato  = pyqtSignal(int)                       # ordine
 
     def __init__(self, parent=None):
@@ -514,10 +514,10 @@ class CronometroPanel(QWidget):
         self.btn_undo.setEnabled(True)
 
         # Notifica il display della gara corretta (se aperto)
-        self.arrivoConfermato.emit(pettorale, ordine, tempo_str, nome, categoria)
+        self.arrivoConfermato.emit(pettorale, ordine, tempo_str, nome, categoria, pos_cat_str)
         display = self._displays.get(gara_id)
         if display and display.isVisible():
-            display.on_arrivo_confermato(pettorale, ordine, tempo_str, nome, categoria)
+            display.on_arrivo_confermato(pettorale, ordine, tempo_str, nome, categoria, pos_cat_str)
 
     def _on_arrivato_click(self, iscrizione_id: int, pettorale: str) -> None:
         if not self._thread or not self._thread.isRunning():
@@ -644,8 +644,6 @@ class CronometroPanel(QWidget):
         display = self._displays.get(gara_id)
 
         if display is None or not display.isVisible():
-            # Calcola start_ts della gara (può essere diverso da self._start_ts
-            # se le gare sono state avviate con orari diversi)
             display = CronoDisplay(gara.nome)
             self._displays[gara_id] = display
 
@@ -653,7 +651,14 @@ class CronometroPanel(QWidget):
             if self._thread:
                 self._thread.tick.connect(display.on_tick)
 
-            display.carica_arrivi(qr.get_arrivi(conn, gara_id))
+            # Calcola pos_categoria per gli arrivi già registrati
+            raw = qr.get_classifica_raw(conn, gara_id)
+            pos_cat_map = {
+                r.iscrizione_id: r.pos_categoria
+                for r in calcola_classifica([from_row(r) for r in raw])
+                if r.pos_categoria is not None
+            }
+            display.carica_arrivi(qr.get_arrivi(conn, gara_id), pos_cat_map)
 
         display.show()
         display.raise_()
