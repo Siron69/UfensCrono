@@ -29,6 +29,8 @@ class GareLista(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._evento_id: int | None = None
+        self._n_gare_in_corso: int = 0          # aggiornato da refresh()
+        self._first_in_corso_id: int | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -76,6 +78,12 @@ class GareLista(QWidget):
         self.btn_iscrizioni.clicked.connect(self._on_iscrizioni)
         actions.addWidget(self.btn_iscrizioni)
 
+        self.btn_cronometro_evento = QPushButton("Cronometro evento →")
+        self.btn_cronometro_evento.setVisible(False)
+        self.btn_cronometro_evento.setStyleSheet("font-weight: bold;")
+        self.btn_cronometro_evento.clicked.connect(self._on_cronometro_evento)
+        actions.addWidget(self.btn_cronometro_evento)
+
         self.btn_cronometro = QPushButton("Avvia cronometro →")
         self.btn_cronometro.setEnabled(False)
         self.btn_cronometro.clicked.connect(self._on_cronometro)
@@ -112,6 +120,11 @@ class GareLista(QWidget):
         conn = get_connection()
         gare = qg.get_by_evento(conn, self._evento_id)
 
+        # Cache stato evento per il pulsante "Cronometro evento"
+        in_corso = [g for g in gare if g.stato == 'in_corso']
+        self._n_gare_in_corso  = len(in_corso)
+        self._first_in_corso_id = in_corso[0].id if in_corso else None
+
         self.table.setRowCount(0)
         for gara in gare:
             row = self.table.rowCount()
@@ -141,6 +154,10 @@ class GareLista(QWidget):
         self.btn_classifica.setEnabled(has and stato in ("in_corso", "conclusa"))
         self.btn_modifica.setEnabled(has and stato == "bozza")
         self.btn_elimina.setEnabled(has and stato == "bozza")
+        # Pulsante evento: visibile solo quando ≥2 gare sono in_corso
+        multi = self._n_gare_in_corso >= 2
+        self.btn_cronometro_evento.setVisible(multi)
+        self.btn_cronometro_evento.setEnabled(multi)
 
     def _selected_id(self) -> int | None:
         if not self.table.selectedItems():
@@ -200,6 +217,11 @@ class GareLista(QWidget):
         gid = self._selected_id()
         if gid is not None:
             self.apri_cronometro.emit(gid)
+
+    def _on_cronometro_evento(self) -> None:
+        """Apre il cronometro in modalità evento (vista unificata di tutte le gare in_corso)."""
+        if self._first_in_corso_id is not None:
+            self.apri_cronometro.emit(self._first_in_corso_id)
 
     def _on_classifica(self) -> None:
         gid = self._selected_id()

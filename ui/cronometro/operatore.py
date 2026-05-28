@@ -1,14 +1,132 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QLineEdit, QMessageBox, QHeaderView, QMenu,
+    QDialog, QFormLayout, QDialogButtonBox, QTimeEdit, QRadioButton,
+    QButtonGroup,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTime
 from PyQt6.QtGui import QFont
+
+
+# ── Dialog: scelta orario di partenza ────────────────────────────────────────
+
+class StartGaraDialog(QDialog):
+    """Chiede all'operatore se partire adesso o con un orario personalizzato."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Avvio gara — orario di partenza")
+        self.setMinimumWidth(340)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        layout.addWidget(QLabel("Scegli l'orario di partenza:"))
+
+        self._rb_adesso = QRadioButton("Adesso")
+        self._rb_adesso.setChecked(True)
+        self._rb_custom = QRadioButton("Orario personalizzato:")
+
+        grp = QButtonGroup(self)
+        grp.addButton(self._rb_adesso)
+        grp.addButton(self._rb_custom)
+
+        layout.addWidget(self._rb_adesso)
+
+        row = QHBoxLayout()
+        row.addWidget(self._rb_custom)
+        self._time_edit = QTimeEdit(QTime.currentTime())
+        self._time_edit.setDisplayFormat("HH:mm:ss")
+        self._time_edit.setEnabled(False)
+        row.addWidget(self._time_edit)
+        layout.addLayout(row)
+
+        self._rb_custom.toggled.connect(self._time_edit.setEnabled)
+
+        self._lbl_info = QLabel("")
+        self._lbl_info.setStyleSheet("color: #64748b; font-size: 11px;")
+        layout.addWidget(self._lbl_info)
+        self._time_edit.timeChanged.connect(self._aggiorna_info)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._on_ok)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _aggiorna_info(self) -> None:
+        if not self._rb_custom.isChecked():
+            self._lbl_info.setText("")
+            return
+        elapsed = self._elapsed_seconds()
+        if elapsed is None:
+            return
+        if elapsed < 0:
+            self._lbl_info.setText(
+                f"⚠ Orario nel futuro (+{-elapsed:.0f}s) — verrà accettato solo se ≤5 min"
+            )
+        else:
+            h, rem = divmod(int(elapsed), 3600)
+            m, s  = divmod(rem, 60)
+            self._lbl_info.setText(f"Il timer partirà da  {h}:{m:02}:{s:02}  (tempo già trascorso)")
+
+    def _elapsed_seconds(self) -> Optional[float]:
+        """Secondi trascorsi dall'orario selezionato a adesso. Negativo = futuro."""
+        if self._rb_adesso.isChecked():
+            return 0.0
+        qt = self._time_edit.time()
+        now = datetime.now()
+        start_today = now.replace(
+            hour=qt.hour(), minute=qt.minute(), second=qt.second(), microsecond=0
+        )
+        diff = (now - start_today).total_seconds()
+        # Se l'orario è nella prossima ora (< -23h) consideriamolo come ieri
+        if diff < -23 * 3600:
+            diff += 24 * 3600
+        return diff
+
+    def _on_ok(self) -> None:
+        if self._rb_custom.isChecked():
+            elapsed = self._elapsed_seconds()
+            if elapsed is not None and elapsed < -300:   # > 5 min nel futuro
+                QMessageBox.warning(
+                    self, "Orario non valido",
+                    "L'orario di partenza non può essere più di 5 minuti nel futuro."
+                )
+                return
+        self.accept()
+
+    def get_start_info(self) -> tuple[float, str]:
+        """Ritorna (start_ts, start_wall) pronti per avvia_gara().
+
+        start_ts  — valore da passare a CronoThread (perf_counter già calibrato)
+        start_wall — ISO string da salvare nel DB
+        """
+        if self._rb_adesso.isChecked():
+            start_ts   = time.perf_counter()
+            start_wall = datetime.now().isoformat()
+            return start_ts, start_wall
+
+        elapsed = self._elapsed_seconds() or 0.0
+        start_ts   = time.perf_counter() - elapsed
+        qt         = self._time_edit.time()
+        now        = datetime.now()
+        start_dt   = now.replace(
+            hour=qt.hour(), minute=qt.minute(), second=qt.second(), microsecond=0
+        )
+        if elapsed < 0:                  # orario futuro ≤5min: usa il futuro
+            start_dt = now + timedelta(seconds=-elapsed)
+        start_wall = start_dt.isoformat()
+        return start_ts, start_wall
 
 from db.connection import get_connection
 from db.queries import gare as qg
@@ -177,6 +295,7 @@ class CronometroPanel(QWidget):
 
         ev = qev.get_by_id(conn, gara.evento_id)
         ev_nome = ev.nome if ev else ""
+        self._ev_nome = ev_nome           # usato da _aggiorna_titolo
         self.lbl_gara.setText(f"{gara.nome} — {ev_nome}")
 
         # Aggiorna label sui display aperti
@@ -274,6 +393,12 @@ class CronometroPanel(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Backup fallito", f"Impossibile creare il backup:\n{e}\n\nProcedo comunque.")
 
+        # ── Dialog: scelta orario di partenza ─────────────────────────────
+        start_dlg = StartGaraDialog(self)
+        if start_dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._start_ts, start_wall = start_dlg.get_start_info()
+
         # ── Avvio multi-gara: check altre gare bozza nello stesso evento ──
         gare_bozza = [g for g in qg.get_by_evento(conn, gara.evento_id)
                       if g.stato == 'bozza']
@@ -296,8 +421,6 @@ class CronometroPanel(QWidget):
             elif clicked != btn_solo:
                 return          # Annulla o X
 
-        self._start_ts = time.perf_counter()
-        start_wall = datetime.now().isoformat()
         if avvia_tutte:
             for g in gare_bozza:
                 qg.avvia_gara(conn, g.id, self._start_ts, start_wall)
@@ -609,6 +732,18 @@ class CronometroPanel(QWidget):
 
         n_rimasti = self.tbl_in_gara.rowCount()
         self.lbl_in_gara.setText(f"In gara: {n_rimasti}")
+        self._aggiorna_titolo()
+
+    def _aggiorna_titolo(self) -> None:
+        """Aggiorna lbl_gara: modalità evento se più gare attive, altrimenti per-gara."""
+        ev_nome = getattr(self, '_ev_nome', '')
+        if len(self._gare_attive) > 1:
+            self.lbl_gara.setText(f"{ev_nome} — Cronometro evento")
+        else:
+            conn = get_connection()
+            gara = qg.get_by_id(conn, self._gara_id) if self._gara_id else None
+            nome = gara.nome if gara else "Cronometro"
+            self.lbl_gara.setText(f"{nome} — {ev_nome}" if ev_nome else nome)
 
     def _aggiorna_counter(self) -> None:
         """Aggiorna il label 'Arrivati' con conteggio per-gara se multi-gara."""
