@@ -5,50 +5,41 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ui.atleti.lista import AtletiLista
-
-_NAV_ITEMS = [
-    ("Atleti", 0),
-    ("Eventi", None),
-    ("Gare", None),
-    ("Cronometro", None),
-    ("Classifiche", None),
-]
+from ui.eventi.lista import EventiLista
+from ui.gare.lista import GareLista
+from ui.gare.iscrizioni import IscrizioniPanel
 
 _NAV_STYLE_ACTIVE = """
     QPushButton {
-        background-color: #2563eb;
-        color: white;
-        border: none;
-        padding: 10px 16px;
-        text-align: left;
-        font-size: 14px;
-        border-radius: 6px;
+        background-color: #2563eb; color: white;
+        border: none; padding: 10px 16px;
+        text-align: left; font-size: 14px; border-radius: 6px;
     }
 """
 _NAV_STYLE_NORMAL = """
     QPushButton {
-        background-color: transparent;
-        color: #1e293b;
-        border: none;
-        padding: 10px 16px;
-        text-align: left;
-        font-size: 14px;
-        border-radius: 6px;
+        background-color: transparent; color: #1e293b;
+        border: none; padding: 10px 16px;
+        text-align: left; font-size: 14px; border-radius: 6px;
     }
-    QPushButton:hover {
-        background-color: #e2e8f0;
-    }
-    QPushButton:disabled {
-        color: #94a3b8;
-    }
+    QPushButton:hover { background-color: #e2e8f0; }
+    QPushButton:disabled { color: #94a3b8; }
 """
+
+# indici nel QStackedWidget
+_IDX_ATLETI = 0
+_IDX_EVENTI = 1
+_IDX_GARE = 2
+_IDX_ISCRIZIONI = 3
+_IDX_CRONOMETRO = 4
+_IDX_CLASSIFICHE = 5
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("UfensCrono")
-        self.setMinimumSize(960, 640)
+        self.setMinimumSize(1100, 700)
         self._nav_buttons: list[QPushButton] = []
         self._build_ui()
 
@@ -63,48 +54,88 @@ class MainWindow(QMainWindow):
         sidebar = QFrame()
         sidebar.setFixedWidth(180)
         sidebar.setStyleSheet("background-color: #f8fafc; border-right: 1px solid #e2e8f0;")
-        sb_layout = QVBoxLayout(sidebar)
-        sb_layout.setContentsMargins(12, 20, 12, 20)
-        sb_layout.setSpacing(4)
+        sb = QVBoxLayout(sidebar)
+        sb.setContentsMargins(12, 20, 12, 20)
+        sb.setSpacing(4)
 
         logo = QLabel("UfensCrono")
         logo.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e293b; padding: 0 4px 16px 4px;")
-        sb_layout.addWidget(logo)
+        sb.addWidget(logo)
 
         # ── Stack ────────────────────────────────────────────────────────
         self.stack = QStackedWidget()
 
-        self._atleti_panel = AtletiLista()
-        self.stack.addWidget(self._atleti_panel)   # index 0
+        # 0 – Atleti
+        self._atleti = AtletiLista()
+        self.stack.addWidget(self._atleti)
 
-        for label, index in _NAV_ITEMS:
+        # 1 – Eventi
+        self._eventi = EventiLista()
+        self._eventi.apri_gare.connect(self._on_apri_gare)
+        self.stack.addWidget(self._eventi)
+
+        # 2 – Gare
+        self._gare = GareLista()
+        self._gare.apri_iscrizioni.connect(self._on_apri_iscrizioni)
+        self._gare.indietro.connect(lambda: self._navigate(_IDX_EVENTI))
+        self.stack.addWidget(self._gare)
+
+        # 3 – Iscrizioni (non nella sidebar)
+        self._iscrizioni = IscrizioniPanel()
+        self._iscrizioni.indietro.connect(lambda: self._navigate(_IDX_GARE))
+        self.stack.addWidget(self._iscrizioni)
+
+        # 4 – Cronometro (placeholder)
+        self.stack.addWidget(self._placeholder("Cronometro"))
+
+        # 5 – Classifiche (placeholder)
+        self.stack.addWidget(self._placeholder("Classifiche"))
+
+        # Nav buttons (solo le sezioni principali visibili in sidebar)
+        nav_items = [
+            ("Atleti", _IDX_ATLETI),
+            ("Eventi", _IDX_EVENTI),
+            ("Gare", _IDX_GARE),
+            ("Cronometro", _IDX_CRONOMETRO),
+            ("Classifiche", _IDX_CLASSIFICHE),
+        ]
+        for label, idx in nav_items:
             btn = QPushButton(label)
-            btn.setCheckable(False)
-            if index is not None:
-                btn.clicked.connect(lambda checked, i=index: self._navigate(i))
-                btn.setStyleSheet(_NAV_STYLE_NORMAL)
-            else:
-                btn.setEnabled(False)
-                btn.setStyleSheet(_NAV_STYLE_NORMAL)
-                placeholder = QLabel(f"<i>{label} — in sviluppo</i>")
-                placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                placeholder.setStyleSheet("color: #94a3b8; font-size: 14px;")
-                self.stack.addWidget(placeholder)
+            is_ready = idx in (_IDX_ATLETI, _IDX_EVENTI, _IDX_GARE)
+            btn.setEnabled(is_ready)
+            if is_ready:
+                btn.clicked.connect(lambda checked, i=idx: self._navigate(i))
+            btn.setStyleSheet(_NAV_STYLE_NORMAL)
+            sb.addWidget(btn)
+            self._nav_buttons.append((btn, idx))
 
-            sb_layout.addWidget(btn)
-            self._nav_buttons.append(btn)
-
-        sb_layout.addStretch()
-
+        sb.addStretch()
         root.addWidget(sidebar)
         root.addWidget(self.stack, stretch=1)
 
-        self._navigate(0)
+        self._navigate(_IDX_ATLETI)
+
+    def _placeholder(self, name: str) -> QWidget:
+        w = QWidget()
+        lbl = QLabel(f"<i>{name} — in sviluppo</i>")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet("color: #94a3b8; font-size: 16px;")
+        lay = QVBoxLayout(w)
+        lay.addWidget(lbl)
+        return w
 
     def _navigate(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
-        for i, (_, idx) in enumerate(_NAV_ITEMS):
+        for btn, idx in self._nav_buttons:
             if idx == index:
-                self._nav_buttons[i].setStyleSheet(_NAV_STYLE_ACTIVE)
-            elif idx is not None:
-                self._nav_buttons[i].setStyleSheet(_NAV_STYLE_NORMAL)
+                btn.setStyleSheet(_NAV_STYLE_ACTIVE)
+            elif btn.isEnabled():
+                btn.setStyleSheet(_NAV_STYLE_NORMAL)
+
+    def _on_apri_gare(self, evento_id: int) -> None:
+        self._gare.set_evento(evento_id)
+        self._navigate(_IDX_GARE)
+
+    def _on_apri_iscrizioni(self, gara_id: int) -> None:
+        self._iscrizioni.set_gara(gara_id)
+        self._navigate(_IDX_ISCRIZIONI)
