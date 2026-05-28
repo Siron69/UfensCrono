@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox,
-    QMessageBox,
+    QMessageBox, QFileDialog,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -14,6 +14,7 @@ from db.queries import gare as qg
 from db.queries import eventi as qev
 from db.queries import risultati as qr
 from logic.classifica import RigaClassifica, from_row, calcola_classifica
+from logic.export_xlsx import esporta_xlsx
 from utils.tempo import ms_to_str, str_to_ms
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
@@ -81,6 +82,8 @@ class ClassifichePanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._gara_id: Optional[int] = None
+        self._nome_gara: str = ""
+        self._nome_evento: str = ""
         self._righe: list[RigaClassifica] = []
         self._build_ui()
 
@@ -100,6 +103,10 @@ class ClassifichePanel(QWidget):
         btn_refresh = QPushButton("Aggiorna")
         btn_refresh.clicked.connect(self._load)
         top.addWidget(btn_refresh)
+        self.btn_xlsx = QPushButton("Esporta Excel")
+        self.btn_xlsx.clicked.connect(self._on_esporta_xlsx)
+        self.btn_xlsx.setEnabled(False)
+        top.addWidget(self.btn_xlsx)
         layout.addLayout(top)
 
         self.lbl_gara = QLabel("Classifica")
@@ -163,8 +170,11 @@ class ClassifichePanel(QWidget):
         ev_nome = ev.nome if ev else ""
         self.lbl_gara.setText(f"Classifica — {gara.nome} | {ev_nome}")
 
+        self._nome_gara = gara.nome
+        self._nome_evento = ev_nome
         rows = qr.get_classifica_raw(conn, self._gara_id)
         self._righe = calcola_classifica([from_row(r) for r in rows])
+        self.btn_xlsx.setEnabled(bool(self._righe))
         self._fill_all()
 
     # ── Fill tables ───────────────────────────────────────────────────────
@@ -250,6 +260,25 @@ class ClassifichePanel(QWidget):
                 if riga.stato in ("dsq", "dnf", "dns"):
                     item.setForeground(_GRAY)
                 table.setItem(row, col, item)
+
+    # ── Export ───────────────────────────────────────────────────────────
+
+    def _on_esporta_xlsx(self) -> None:
+        if not self._righe:
+            return
+        safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in self._nome_gara)
+        default_name = f"classifica_{safe}.xlsx"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salva classifica Excel", default_name,
+            "Excel (*.xlsx);;Tutti i file (*)"
+        )
+        if not path:
+            return
+        try:
+            dest = esporta_xlsx(self._righe, self._nome_gara, self._nome_evento, dest_path=path)
+            QMessageBox.information(self, "Export completato", f"File salvato in:\n{dest}")
+        except Exception as e:
+            QMessageBox.critical(self, "Errore export", str(e))
 
     # ── Edit ──────────────────────────────────────────────────────────────
 
