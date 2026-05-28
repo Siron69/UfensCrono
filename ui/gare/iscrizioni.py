@@ -14,6 +14,7 @@ from db.queries import atleti as qa
 from db.queries import eventi as qev
 from models.gara import Iscrizione, Categoria
 from logic.categorie import calcola_categoria
+from ui.atleti.import_wizard import ImportWizard
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
 
@@ -207,10 +208,17 @@ class IscrizioniPanel(QWidget):
         self.tbl_disp.itemSelectionChanged.connect(self._update_buttons)
         ll.addWidget(self.tbl_disp)
 
+        left_btns = QHBoxLayout()
         self.btn_iscrivi = QPushButton("Iscrivi →")
         self.btn_iscrivi.setEnabled(False)
         self.btn_iscrivi.clicked.connect(self._on_iscrivi)
-        ll.addWidget(self.btn_iscrivi)
+        left_btns.addWidget(self.btn_iscrivi)
+
+        self.btn_import_xlsx = QPushButton("Importa XLSX…")
+        self.btn_import_xlsx.clicked.connect(self._on_import_xlsx)
+        left_btns.addWidget(self.btn_import_xlsx)
+        left_btns.addStretch()
+        ll.addLayout(left_btns)
 
         splitter.addWidget(left)
 
@@ -495,3 +503,8 @@ class IscrizioniPanel(QWidget):
         ) == QMessageBox.StandardButton.Yes:
             qg.delete_categoria(get_connection(), cat_id)
             self._refresh_categorie()
+
+    def _on_import_xlsx(self) -> None:
+        dlg = ImportWizard(self, gara_id=self._gara_id)
+        dlg.exec()
+        self.refresh()

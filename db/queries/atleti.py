@@ -111,3 +111,38 @@ def update(conn: sqlite3.Connection, atleta: Atleta) -> None:
 def delete(conn: sqlite3.Connection, atleta_id: int) -> None:
     conn.execute("DELETE FROM atleti WHERE id = ?", (atleta_id,))
     conn.commit()
+
+
+def find_by_cf(conn: sqlite3.Connection, cf: str) -> Optional[Atleta]:
+    row = conn.execute(_SELECT + " WHERE codice_fiscale = ?", (cf.strip().upper(),)).fetchone()
+    return _to_atleta(row) if row else None
+
+
+def find_by_nome_cognome_dob(
+    conn: sqlite3.Connection, nome: str, cognome: str, dob: str
+) -> Optional[Atleta]:
+    row = conn.execute(
+        _SELECT + " WHERE LOWER(nome)=LOWER(?) AND LOWER(cognome)=LOWER(?) AND data_nascita=?",
+        (nome, cognome, dob),
+    ).fetchone()
+    return _to_atleta(row) if row else None
+
+
+def update_from_import(conn: sqlite3.Connection, atleta: Atleta) -> None:
+    """Aggiornamento completo usato dall'import XLSX, include source tracking."""
+    conn.execute(
+        """UPDATE atleti SET nome=?, cognome=?, sesso=?, data_nascita=?,
+               luogo_nascita=?, nazionalita=?, codice_fiscale=?, societa=?,
+               codice_societa=?, tessera=?, tessera2=?, ente=?, categoria=?,
+               scad_certificato=?, stato_cert=?, telefono=?, cellulare=?,
+               email=?, note=?, source_id=?, source_order_id=?,
+               updated_at=datetime('now')
+           WHERE id=?""",
+        (atleta.nome, atleta.cognome, atleta.sesso, atleta.data_nascita,
+         atleta.luogo_nascita, atleta.nazionalita, atleta.codice_fiscale,
+         atleta.societa, atleta.codice_societa, atleta.tessera, atleta.tessera2,
+         atleta.ente, atleta.categoria, atleta.scad_certificato, atleta.stato_cert,
+         atleta.telefono, atleta.cellulare, atleta.email, atleta.note,
+         atleta.source_id, atleta.source_order_id, atleta.id),
+    )
+    conn.commit()
