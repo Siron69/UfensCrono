@@ -1,5 +1,6 @@
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Optional
@@ -34,7 +35,22 @@ class ImportResult:
         return "\n".join(lines)
 
 
-# Mapping nome colonna (lowercase) → (campo_db, tabella)
+def _normalize_col(header) -> str:
+    """Normalizza un'intestazione di colonna per il confronto robusto.
+
+    Gestisce: BOM, spazi non-breaking, accenti in forma NFC/NFD,
+    maiuscole/minuscole, spazi ridondanti.
+    """
+    if header is None:
+        return ''
+    s = str(header)
+    s = s.replace('﻿', '')       # BOM
+    s = s.replace(' ', ' ')      # spazio non-breaking → spazio normale
+    s = unicodedata.normalize('NFC', s)  # à = a+combining → à (precomposta)
+    return s.strip().lower()
+
+
+# Mapping nome colonna (lowercase, normalizzato) → (campo_db, tabella)
 _COL_MAP: dict[str, tuple[str, str]] = {
     'id':                   ('source_id',        'atleti'),
     'order id':             ('source_order_id',   'atleti'),
@@ -43,15 +59,15 @@ _COL_MAP: dict[str, tuple[str, str]] = {
     'sesso':                ('sesso',             'atleti'),
     'data nascita':         ('data_nascita',      'atleti'),
     'luogo di nascita':     ('luogo_nascita',     'atleti'),
-    'nazionalità':          ('nazionalita',       'atleti'),
+    'nazionalità':     ('nazionalita',       'atleti'),   # à precomposta
     'nazionalita':          ('nazionalita',       'atleti'),
     'codice fiscale':       ('codice_fiscale',    'atleti'),
     'tessera':              ('tessera',           'atleti'),
     'tessera2':             ('tessera2',          'atleti'),
     'ente':                 ('ente',              'atleti'),
-    'codice società':       ('codice_societa',    'atleti'),
+    'codice società':  ('codice_societa',    'atleti'),   # à precomposta
     'codice societa':       ('codice_societa',    'atleti'),
-    'società':              ('societa',           'atleti'),
+    'società':         ('societa',           'atleti'),   # à precomposta
     'societa':              ('societa',           'atleti'),
     'categoria':            ('categoria',         'atleti'),
     'scadenza certificato': ('scad_certificato',  'atleti'),
@@ -66,6 +82,10 @@ _COL_MAP: dict[str, tuple[str, str]] = {
     'quota':                ('quota',             'iscrizioni'),
     'stato lw':             ('stato_lw',          'iscrizioni'),
 }
+
+
+# Pre-normalizza le chiavi del dizionario una volta sola
+_COL_MAP = {_normalize_col(k): v for k, v in _COL_MAP.items()}
 
 
 def _str(val) -> Optional[str]:
@@ -110,6 +130,11 @@ def normalizza_data(val) -> Optional[str]:
     return None
 
 
+def riconosci_colonne(headers: list[str]) -> list[bool]:
+    """Ritorna una lista di bool: True se la colonna è mappata, False altrimenti."""
+    return [_normalize_col(h) in _COL_MAP for h in headers]
+
+
 def leggi_xlsx_preview(path: str) -> tuple[list[str], list[list[str]]]:
     """Restituisce (intestazioni, prime 5 righe dati) come stringhe."""
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -147,7 +172,7 @@ def importa_xlsx(
     for i, h in enumerate(raw_headers):
         if h is None:
             continue
-        key = str(h).strip().lower()
+        key = _normalize_col(h)
         if key in _COL_MAP:
             field_name, table = _COL_MAP[key]
             col_index[field_name] = (i, table)

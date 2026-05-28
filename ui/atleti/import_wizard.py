@@ -8,10 +8,12 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from PyQt6.QtGui import QColor
+
 from db.connection import get_connection
 from db.queries import eventi as qev
 from db.queries import gare as qg
-from logic.import_xlsx import leggi_xlsx_preview, importa_xlsx
+from logic.import_xlsx import leggi_xlsx_preview, importa_xlsx, riconosci_colonne
 
 
 class ImportWizard(QDialog):
@@ -84,6 +86,11 @@ class ImportWizard(QDialog):
         self.lbl_n_righe = QLabel("")
         self.lbl_n_righe.setStyleSheet("color: #64748b;")
         lay.addWidget(self.lbl_n_righe)
+
+        self.lbl_col_info = QLabel("")
+        self.lbl_col_info.setWordWrap(True)
+        self.lbl_col_info.setStyleSheet("color: #475569; font-size: 11px;")
+        lay.addWidget(self.lbl_col_info)
 
         return w
 
@@ -233,6 +240,8 @@ class ImportWizard(QDialog):
         self.lbl_n_righe.setText(f"Righe totali nel file: {total}")
 
         # Preview
+        recognized = riconosci_colonne(headers)
+        n_ok = sum(recognized)
         n_cols = len(headers)
         self.preview_table.setColumnCount(n_cols)
         self.preview_table.setHorizontalHeaderLabels(headers)
@@ -240,9 +249,30 @@ class ImportWizard(QDialog):
         for r, row in enumerate(rows):
             for c, val in enumerate(row):
                 self.preview_table.setItem(r, c, QTableWidgetItem(val))
+
+        # Colora le intestazioni: verde = riconosciuta, grigio = ignorata
+        _OK_BG   = QColor("#dcfce7")   # verde chiaro
+        _SKIP_BG = QColor("#f1f5f9")   # grigio chiaro
+        hh = self.preview_table.horizontalHeader()
+        for c, ok in enumerate(recognized):
+            item = self.preview_table.horizontalHeaderItem(c)
+            if item:
+                item.setBackground(_OK_BG if ok else _SKIP_BG)
+
         self.preview_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
         )
+
+        unrecognized = [h for h, ok in zip(headers, recognized) if not ok and h]
+        info = (
+            f"<b>{n_ok}/{n_cols}</b> colonne riconosciute (verde = importata, grigio = ignorata)."
+        )
+        if unrecognized:
+            skip_str = ", ".join(unrecognized[:8])
+            if len(unrecognized) > 8:
+                skip_str += f" e altre {len(unrecognized)-8}"
+            info += f"<br>Ignorate: {skip_str}"
+        self.lbl_col_info.setText(info)
         self._update_nav()
 
     def _count_file_rows(self) -> int:

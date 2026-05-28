@@ -118,6 +118,17 @@ class ClassifichePanel(QWidget):
         self.lbl_gara.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(self.lbl_gara)
 
+        # Messaggio visibile quando nessuna gara è selezionata
+        self.lbl_empty = QLabel(
+            "Nessuna gara selezionata.\n\n"
+            "Per visualizzare la classifica vai su Gare, seleziona una gara "
+            "in corso o conclusa e clicca «Classifica →»."
+        )
+        self.lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty.setStyleSheet("color: #94a3b8; font-size: 14px; padding: 40px;")
+        self.lbl_empty.setWordWrap(True)
+        layout.addWidget(self.lbl_empty)
+
         self.tabs = QTabWidget()
 
         self.tbl_assoluta = self._make_table(
@@ -140,6 +151,7 @@ class ClassifichePanel(QWidget):
         )
         self.tabs.addTab(self.tbl_donne, "Donne")
 
+        self.tabs.hide()   # nascosto finché non è caricata una gara
         layout.addWidget(self.tabs)
 
         lbl_hint = QLabel("Doppio clic su una riga per modificare stato o tempo")
@@ -166,23 +178,45 @@ class ClassifichePanel(QWidget):
 
     def _load(self) -> None:
         if not self._gara_id:
+            self.lbl_empty.show()
+            self.tabs.hide()
+            self.lbl_gara.setText("Classifica")
             return
-        conn = get_connection()
-        gara = qg.get_by_id(conn, self._gara_id)
-        if not gara:
-            return
-        ev = qev.get_by_id(conn, gara.evento_id)
-        ev_nome = ev.nome if ev else ""
-        self.lbl_gara.setText(f"Classifica — {gara.nome} | {ev_nome}")
+        try:
+            conn = get_connection()
+            gara = qg.get_by_id(conn, self._gara_id)
+            if not gara:
+                self.lbl_empty.setText("Gara non trovata nel database.")
+                self.lbl_empty.show()
+                self.tabs.hide()
+                return
+            ev = qev.get_by_id(conn, gara.evento_id)
+            ev_nome = ev.nome if ev else ""
+            self.lbl_gara.setText(f"Classifica — {gara.nome} | {ev_nome}")
 
-        self._nome_gara = gara.nome
-        self._nome_evento = ev_nome
-        rows = qr.get_classifica_raw(conn, self._gara_id)
-        self._righe = calcola_classifica([from_row(r) for r in rows])
-        has_data = bool(self._righe)
-        self.btn_xlsx.setEnabled(has_data)
-        self.btn_pdf.setEnabled(has_data)
-        self._fill_all()
+            self._nome_gara = gara.nome
+            self._nome_evento = ev_nome
+            rows = qr.get_classifica_raw(conn, self._gara_id)
+            self._righe = calcola_classifica([from_row(r) for r in rows])
+            has_data = bool(self._righe)
+            self.btn_xlsx.setEnabled(has_data)
+            self.btn_pdf.setEnabled(has_data)
+
+            if not has_data:
+                self.lbl_empty.setText(
+                    "Nessun atleta iscritto a questa gara.\n\n"
+                    "Aggiungi iscrizioni dalla schermata Gare → Iscrizioni."
+                )
+                self.lbl_empty.show()
+                self.tabs.hide()
+            else:
+                self.lbl_empty.hide()
+                self.tabs.show()
+                self._fill_all()
+        except Exception as e:
+            QMessageBox.critical(self, "Errore caricamento classifica", str(e))
+            import traceback
+            traceback.print_exc()
 
     # ── Fill tables ───────────────────────────────────────────────────────
 
