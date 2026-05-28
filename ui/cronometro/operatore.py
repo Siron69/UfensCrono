@@ -5,7 +5,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem,
-    QLineEdit, QMessageBox, QHeaderView,
+    QLineEdit, QMessageBox, QHeaderView, QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -32,9 +32,12 @@ class CronometroPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._gara_id: Optional[int] = None
+        self._evento_id: Optional[int] = None
+        self._gare_attive: list = []          # gare in_corso nell'evento corrente
         self._start_ts: float = 0.0
         self._thread: Optional[CronoThread] = None
-        self._display: Optional[CronoDisplay] = None
+        self._displays: dict[int, CronoDisplay] = {}  # gara_id → CronoDisplay
+        self._undo_stack: list[tuple[int, int]] = []  # (gara_id, risultato_id) LIFO
         self._build_ui()
 
     # ── Build UI ──────────────────────────────────────────────────────────
@@ -114,12 +117,13 @@ class CronometroPanel(QWidget):
         self.lbl_arrivi_count.setStyleSheet("font-weight: bold;")
         al.addWidget(self.lbl_arrivi_count)
 
-        self.tbl_arrivi = QTableWidget(0, 4)
-        self.tbl_arrivi.setHorizontalHeaderLabels(["#", "Pett.", "Atleta", "Tempo"])
+        self.tbl_arrivi = QTableWidget(0, 5)
+        self.tbl_arrivi.setHorizontalHeaderLabels(["#", "Pett.", "Atleta", "Gara", "Tempo"])
         self.tbl_arrivi.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_arrivi.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.tbl_arrivi.verticalHeader().setVisible(False)
         self.tbl_arrivi.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.tbl_arrivi.setColumnHidden(3, True)   # visibile solo in modalità multi-gara
         al.addWidget(self.tbl_arrivi)
 
         splitter.addWidget(arrivi_panel)
@@ -131,12 +135,13 @@ class CronometroPanel(QWidget):
         self.lbl_in_gara.setStyleSheet("font-weight: bold; margin-top: 8px;")
         root.addWidget(self.lbl_in_gara)
 
-        self.tbl_in_gara = QTableWidget(0, 3)
-        self.tbl_in_gara.setHorizontalHeaderLabels(["Pettorale", "Atleta", ""])
+        self.tbl_in_gara = QTableWidget(0, 4)
+        self.tbl_in_gara.setHorizontalHeaderLabels(["Pettorale", "Atleta", "Gara", ""])
         self.tbl_in_gara.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_in_gara.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.tbl_in_gara.verticalHeader().setVisible(False)
         self.tbl_in_gara.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tbl_in_gara.setColumnHidden(2, True)   # visibile solo in modalità multi-gara
         self.tbl_in_gara.setMaximumHeight(220)
         root.addWidget(self.tbl_in_gara)
 
@@ -163,17 +168,23 @@ class CronometroPanel(QWidget):
     def set_gara(self, gara_id: int) -> None:
         self._stop_thread()
         self._gara_id = gara_id
+        self._undo_stack = []
         conn = get_connection()
         gara = qg.get_by_id(conn, gara_id)
         if not gara:
             return
+        self._evento_id = gara.evento_id
 
         ev = qev.get_by_id(conn, gara.evento_id)
         ev_nome = ev.nome if ev else ""
         self.lbl_gara.setText(f"{gara.nome} — {ev_nome}")
 
-        if self._display:
-            self._display.set_gara_label(f"{gara.nome} | {ev_nome}")
+        # Aggiorna label sui display aperti
+        for gid, display in self._displays.items():
+            if display.isVisible():
+                g_label = qg.get_by_id(conn, gid)
+                lbl = f"{g_label.nome} | {ev_nome}" if g_label else ev_nome
+                display.set_gara_label(lbl)
 
         if gara.stato == 'bozza':
             self._set_stato_bozza()
@@ -227,8 +238,10 @@ class CronometroPanel(QWidget):
     def _avvia_thread(self) -> None:
         self._thread = CronoThread(self._start_ts)
         self._thread.tick.connect(self._on_tick)
-        if self._display:
-            self._thread.tick.connect(self._display.on_tick)
+        # Connetti il tick a tutti i display aperti
+        for display in self._displays.values():
+            if display.isVisible():
+                self._thread.tick.connect(display.on_tick)
         self._thread.start()
 
     def _stop_thread(self) -> None:
@@ -311,48 +324,69 @@ class CronometroPanel(QWidget):
 
     # ── Registrazione arrivo ──────────────────────────────────────────────
 
-    def _registra_arrivo(self, iscrizione_id: int, pettorale: str) -> None:
+    def _registra_arrivo(
+        self,
+        iscrizione_id: int,
+        pettorale: str,
+        gara_id: Optional[int] = None,
+    ) -> None:
         """Nucleo atomico: cattura il tempo, scrive nel DB, aggiorna entrambe le finestre."""
+        if gara_id is None:
+            gara_id = self._gara_id
+
         t_arrivo = time.perf_counter()
         delta_ms = round((t_arrivo - self._start_ts) * 1000)
 
         conn = get_connection()
-        ordine = qr.count_arrivi(conn, self._gara_id) + 1
+        ordine = qr.count_arrivi(conn, gara_id) + 1
 
         try:
-            qr.insert_arrivo(conn, iscrizione_id, delta_ms, ordine)
+            risultato_id = qr.insert_arrivo(conn, iscrizione_id, delta_ms, ordine)
         except Exception as e:
             QMessageBox.warning(self, "Errore", f"Impossibile registrare l'arrivo:\n{e}")
             return
 
+        self._undo_stack.append((gara_id, risultato_id))
+
         tempo_str = ms_to_str(delta_ms)
 
-        # Aggiorna tabella arrivi operatore
+        # Nome gara (per colonna multi-gara)
+        gara_nome = ""
+        for g in self._gare_attive:
+            if g.id == gara_id:
+                gara_nome = g.nome
+                break
+
+        # Aggiorna tabella arrivi operatore (5 colonne: #, pett, atleta, gara, tempo)
         row = self.tbl_arrivi.rowCount()
         self.tbl_arrivi.insertRow(row)
         iscrizioni_map = self._get_iscrizioni_map()
         iscr = iscrizioni_map.get(iscrizione_id)
         nome = f"{iscr.atleta_cognome} {iscr.atleta_nome}" if iscr else pettorale
         categoria = iscr.categoria_effettiva or "" if iscr else ""
-        for col, text in enumerate([str(ordine), pettorale, nome, tempo_str]):
+        for col, text in enumerate([str(ordine), pettorale, nome, gara_nome, tempo_str]):
             self.tbl_arrivi.setItem(row, col, QTableWidgetItem(text))
         self.tbl_arrivi.scrollToBottom()
-        self.lbl_arrivi_count.setText(f"Arrivati: {ordine}")
+
+        self._aggiorna_counter()
 
         # Rimuovi dalla tabella in gara
         self._rimuovi_da_in_gara(iscrizione_id)
 
         self.btn_undo.setEnabled(True)
 
-        # Notifica display
+        # Notifica il display della gara corretta (se aperto)
         self.arrivoConfermato.emit(pettorale, ordine, tempo_str, nome, categoria)
-        if self._display:
-            self._display.on_arrivo_confermato(pettorale, ordine, tempo_str, nome, categoria)
+        display = self._displays.get(gara_id)
+        if display and display.isVisible():
+            display.on_arrivo_confermato(pettorale, ordine, tempo_str, nome, categoria)
 
     def _on_arrivato_click(self, iscrizione_id: int, pettorale: str) -> None:
         if not self._thread or not self._thread.isRunning():
             return
-        self._registra_arrivo(iscrizione_id, pettorale)
+        iscr = self._get_iscrizioni_map().get(iscrizione_id)
+        gara_id = iscr.gara_id if iscr else self._gara_id
+        self._registra_arrivo(iscrizione_id, pettorale, gara_id=gara_id)
         self.bib_input.setFocus()
 
     def _on_registra_bib(self) -> None:
@@ -363,13 +397,13 @@ class CronometroPanel(QWidget):
             return
         self.bib_input.clear()
 
-        # Cerca l'iscrizione per pettorale
+        # Cerca l'iscrizione per pettorale tra tutte le gare attive dell'evento
+        conn = get_connection()
         iscrizioni_map = self._get_iscrizioni_map()
         target = None
         for iscr in iscrizioni_map.values():
             if iscr.pettorale == bib:
-                # Controlla che non sia già arrivato
-                arrivati = qr.get_iscritti_arrivati_ids(get_connection(), self._gara_id)
+                arrivati = qr.get_iscritti_arrivati_ids(conn, iscr.gara_id)
                 if iscr.id not in arrivati:
                     target = iscr
                     break
@@ -380,16 +414,25 @@ class CronometroPanel(QWidget):
             self.bib_input.setFocus()
             return
 
-        self._registra_arrivo(target.id, bib)
+        self._registra_arrivo(target.id, bib, gara_id=target.gara_id)
         self.bib_input.setFocus()
 
     # ── Undo ─────────────────────────────────────────────────────────────
 
     def _on_undo(self) -> None:
-        conn = get_connection()
-        ultimo = qr.get_ultimo_arrivo(conn, self._gara_id)
-        if not ultimo:
+        if not self._undo_stack:
             self.btn_undo.setEnabled(False)
+            return
+
+        gara_id, risultato_id = self._undo_stack[-1]
+        conn = get_connection()
+
+        # Recupera i dettagli per il dialog di conferma
+        ultimo = qr.get_ultimo_arrivo(conn, gara_id)
+        if not ultimo or ultimo.id != risultato_id:
+            # Disallineamento (es. ricarica manuale): scarta e risincronizza
+            self._undo_stack.pop()
+            self.btn_undo.setEnabled(bool(self._undo_stack))
             return
 
         if QMessageBox.question(
@@ -399,89 +442,190 @@ class CronometroPanel(QWidget):
         ) != QMessageBox.StandardButton.Yes:
             return
 
-        qr.delete_by_id(conn, ultimo.id)
+        self._undo_stack.pop()
+        qr.delete_by_id(conn, risultato_id)
 
         # Rimuovi dall'ultima riga della tabella arrivi
         last_row = self.tbl_arrivi.rowCount() - 1
         if last_row >= 0:
             self.tbl_arrivi.removeRow(last_row)
-        n = qr.count_arrivi(conn, self._gara_id)
-        self.lbl_arrivi_count.setText(f"Arrivati: {n}")
+
+        self._aggiorna_counter()
 
         # Rimetti l'atleta in gara
         self._refresh_in_gara()
-        self.btn_undo.setEnabled(n > 0)
+        self.btn_undo.setEnabled(bool(self._undo_stack))
 
-        # Notifica display
+        # Notifica il display della gara corretta (se aperto)
         self.arrivoAnnullato.emit(ultimo.ordine_arrivo or 0)
-        if self._display:
-            self._display.on_arrivo_annullato(ultimo.ordine_arrivo or 0)
+        display = self._displays.get(gara_id)
+        if display and display.isVisible():
+            display.on_arrivo_annullato(ultimo.ordine_arrivo or 0)
 
     # ── Display ───────────────────────────────────────────────────────────
 
     def _on_apri_display(self) -> None:
-        if self._display is None or not self._display.isVisible():
-            gara = qg.get_by_id(get_connection(), self._gara_id)
-            nome = gara.nome if gara else "Gara"
-            self._display = CronoDisplay(nome)
+        """Apre il display pubblico. Se ci sono più gare attive mostra un menu."""
+        conn = get_connection()
+
+        # Costruisce la lista di gare da mostrare
+        if self._evento_id:
+            gare_display = [g for g in qg.get_by_evento(conn, self._evento_id)
+                            if g.stato in ('in_corso', 'conclusa')]
+        else:
+            gara = qg.get_by_id(conn, self._gara_id)
+            gare_display = [gara] if gara else []
+
+        if not gare_display:
+            return
+
+        if len(gare_display) == 1:
+            self._apri_display_per_gara(gare_display[0])
+            return
+
+        # Più gare → menu con una voce per gara
+        menu = QMenu(self)
+        for gara in gare_display:
+            action = menu.addAction(gara.nome)
+            action.setData(gara.id)
+        chosen = menu.exec(
+            self.btn_apri_display.mapToGlobal(
+                self.btn_apri_display.rect().bottomLeft()
+            )
+        )
+        if chosen:
+            gara_id = chosen.data()
+            gara = next((g for g in gare_display if g.id == gara_id), None)
+            if gara:
+                self._apri_display_per_gara(gara)
+
+    def _apri_display_per_gara(self, gara) -> None:
+        """Crea o porta in primo piano il CronoDisplay per la gara specificata."""
+        conn = get_connection()
+        gara_id = gara.id
+        display = self._displays.get(gara_id)
+
+        if display is None or not display.isVisible():
+            # Calcola start_ts della gara (può essere diverso da self._start_ts
+            # se le gare sono state avviate con orari diversi)
+            display = CronoDisplay(gara.nome)
+            self._displays[gara_id] = display
+
+            # Tutte le gare dell'evento condividono il timer (stesso start_wall)
             if self._thread:
-                self._thread.tick.connect(self._display.on_tick)
-            self._display.carica_arrivi(qr.get_arrivi(get_connection(), self._gara_id))
-        self._display.show()
-        self._display.raise_()
+                self._thread.tick.connect(display.on_tick)
+
+            display.carica_arrivi(qr.get_arrivi(conn, gara_id))
+
+        display.show()
+        display.raise_()
 
     # ── Refresh tabelle ───────────────────────────────────────────────────
 
     def _refresh_arrivi(self) -> None:
         if not self._gara_id:
             return
-        arrivi = qr.get_arrivi(get_connection(), self._gara_id)
+        conn = get_connection()
+
+        # Carica arrivi da tutte le gare dell'evento (in_corso o conclusa)
+        if self._evento_id:
+            tutte = qg.get_by_evento(conn, self._evento_id)
+        else:
+            gara = qg.get_by_id(conn, self._gara_id)
+            tutte = [gara] if gara else []
+
+        gare_con_arrivi = [g for g in tutte if g.stato in ('in_corso', 'conclusa')]
+        multi_gara = len(gare_con_arrivi) > 1
+        self.tbl_arrivi.setColumnHidden(3, not multi_gara)
+
+        # Merge e ordina per tempo_ms
+        all_arrivi: list[tuple] = []   # (gara, risultato)
+        for g in gare_con_arrivi:
+            for r in qr.get_arrivi(conn, g.id):
+                all_arrivi.append((g, r))
+        all_arrivi.sort(key=lambda x: (x[1].tempo_ms or 0, x[1].ordine_arrivo or 0))
+
         self.tbl_arrivi.setRowCount(0)
-        for r in arrivi:
+        for idx, (gara, r) in enumerate(all_arrivi, start=1):
             row = self.tbl_arrivi.rowCount()
             self.tbl_arrivi.insertRow(row)
             tempo_str = ms_to_str(r.tempo_ms) if r.tempo_ms is not None else "—"
-            for col, text in enumerate([str(r.ordine_arrivo), r.pettorale or "", r.nome_atleta, tempo_str]):
+            texts = [str(idx), r.pettorale or "", r.nome_atleta, gara.nome, tempo_str]
+            for col, text in enumerate(texts):
                 self.tbl_arrivi.setItem(row, col, QTableWidgetItem(text))
-        self.lbl_arrivi_count.setText(f"Arrivati: {len(arrivi)}")
-        self.btn_undo.setEnabled(len(arrivi) > 0 and self._thread and self._thread.isRunning())
+
+        self._aggiorna_counter()
+        self.btn_undo.setEnabled(
+            bool(self._undo_stack) and bool(self._thread) and self._thread.isRunning()
+        )
 
     def _refresh_in_gara(self) -> None:
         if not self._gara_id:
             return
         conn = get_connection()
-        iscrizioni = qg.get_iscrizioni(conn, self._gara_id)
-        arrivati_ids = qr.get_iscritti_arrivati_ids(conn, self._gara_id)
+
+        # Raccoglie tutte le gare in_corso dell'evento (cross-gara)
+        if self._evento_id:
+            self._gare_attive = [g for g in qg.get_by_evento(conn, self._evento_id)
+                                  if g.stato == 'in_corso']
+        else:
+            gara = qg.get_by_id(conn, self._gara_id)
+            self._gare_attive = [gara] if gara and gara.stato == 'in_corso' else []
+
+        multi_gara = len(self._gare_attive) > 1
+        self.tbl_in_gara.setColumnHidden(2, not multi_gara)
 
         self.tbl_in_gara.setRowCount(0)
-        self._iscrizioni_cache = {i.id: i for i in iscrizioni}
+        self._iscrizioni_cache = {}
 
-        for iscr in iscrizioni:
-            if iscr.id in arrivati_ids:
-                continue
-            row = self.tbl_in_gara.rowCount()
-            self.tbl_in_gara.insertRow(row)
+        for gara in self._gare_attive:
+            iscrizioni  = qg.get_iscrizioni(conn, gara.id)
+            arrivati_ids = qr.get_iscritti_arrivati_ids(conn, gara.id)
 
-            # Pettorale (bold, grande)
-            item_pett = QTableWidgetItem(iscr.pettorale)
-            item_pett.setFont(QFont("", 14, QFont.Weight.Bold))
-            item_pett.setData(_ID_ROLE, iscr.id)
-            self.tbl_in_gara.setItem(row, 0, item_pett)
+            for iscr in iscrizioni:
+                self._iscrizioni_cache[iscr.id] = iscr
+                if iscr.id in arrivati_ids:
+                    continue
 
-            self.tbl_in_gara.setItem(row, 1, QTableWidgetItem(iscr.nome_atleta))
+                row = self.tbl_in_gara.rowCount()
+                self.tbl_in_gara.insertRow(row)
 
-            # Pulsante Arrivato
-            btn = QPushButton("Arrivato")
-            btn.setStyleSheet(
-                "background-color: #16a34a; color: white; border-radius: 4px; padding: 4px 12px;"
-            )
-            iscr_id = iscr.id
-            pett = iscr.pettorale
-            btn.clicked.connect(lambda checked, i=iscr_id, p=pett: self._on_arrivato_click(i, p))
-            self.tbl_in_gara.setCellWidget(row, 2, btn)
+                item_pett = QTableWidgetItem(iscr.pettorale)
+                item_pett.setFont(QFont("", 14, QFont.Weight.Bold))
+                item_pett.setData(_ID_ROLE, iscr.id)
+                self.tbl_in_gara.setItem(row, 0, item_pett)
+                self.tbl_in_gara.setItem(row, 1, QTableWidgetItem(iscr.nome_atleta))
+                if multi_gara:
+                    self.tbl_in_gara.setItem(row, 2, QTableWidgetItem(gara.nome))
+
+                btn = QPushButton("Arrivato")
+                btn.setStyleSheet(
+                    "background-color: #16a34a; color: white; border-radius: 4px; padding: 4px 12px;"
+                )
+                iscr_id = iscr.id
+                pett    = iscr.pettorale
+                btn.clicked.connect(lambda checked, i=iscr_id, p=pett: self._on_arrivato_click(i, p))
+                self.tbl_in_gara.setCellWidget(row, 3, btn)   # sempre col 3
 
         n_rimasti = self.tbl_in_gara.rowCount()
         self.lbl_in_gara.setText(f"In gara: {n_rimasti}")
+
+    def _aggiorna_counter(self) -> None:
+        """Aggiorna il label 'Arrivati' con conteggio per-gara se multi-gara."""
+        conn = get_connection()
+        if len(self._gare_attive) <= 1:
+            n = qr.count_arrivi(conn, self._gara_id) if self._gara_id else 0
+            self.lbl_arrivi_count.setText(f"Arrivati: {n}")
+        else:
+            parts = []
+            tot = 0
+            for g in self._gare_attive:
+                n = qr.count_arrivi(conn, g.id)
+                parts.append(f"{g.nome}: {n}")
+                tot += n
+            self.lbl_arrivi_count.setText(
+                f"Arrivati: {tot}  (" + "  |  ".join(parts) + ")"
+            )
 
     def _rimuovi_da_in_gara(self, iscrizione_id: int) -> None:
         for row in range(self.tbl_in_gara.rowCount()):
