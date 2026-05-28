@@ -23,6 +23,7 @@ _STATO_LABEL = {
 class GareLista(QWidget):
     apri_iscrizioni = pyqtSignal(int)   # gara_id
     apri_cronometro = pyqtSignal(int)   # gara_id
+    apri_classifica = pyqtSignal(int)   # gara_id
     indietro = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -80,6 +81,11 @@ class GareLista(QWidget):
         self.btn_cronometro.clicked.connect(self._on_cronometro)
         actions.addWidget(self.btn_cronometro)
 
+        self.btn_classifica = QPushButton("Classifica →")
+        self.btn_classifica.setEnabled(False)
+        self.btn_classifica.clicked.connect(self._on_classifica)
+        actions.addWidget(self.btn_classifica)
+
         self.btn_modifica = QPushButton("Modifica")
         self.btn_modifica.setEnabled(False)
         self.btn_modifica.clicked.connect(self._on_modifica)
@@ -132,6 +138,7 @@ class GareLista(QWidget):
         stato = self._selected_stato()
         self.btn_iscrizioni.setEnabled(has)
         self.btn_cronometro.setEnabled(has and stato in ("bozza", "in_corso"))
+        self.btn_classifica.setEnabled(has and stato in ("in_corso", "conclusa"))
         self.btn_modifica.setEnabled(has and stato == "bozza")
         self.btn_elimina.setEnabled(has and stato == "bozza")
 
@@ -193,3 +200,8 @@ class GareLista(QWidget):
         gid = self._selected_id()
         if gid is not None:
             self.apri_cronometro.emit(gid)
+
+    def _on_classifica(self) -> None:
+        gid = self._selected_id()
+        if gid is not None:
+            self.apri_classifica.emit(gid)

@@ -79,3 +79,45 @@ def get_iscritti_arrivati_ids(conn: sqlite3.Connection, gara_id: int) -> set[int
         (gara_id,)
     ).fetchall()
     return {r['iscrizione_id'] for r in rows}
+
+
+# ── Classifica ───────────────────────────────────────────────────────────────
+
+def get_classifica_raw(conn: sqlite3.Connection, gara_id: int):
+    return conn.execute("""
+        SELECT i.id AS iscrizione_id, i.pettorale,
+               a.nome AS atleta_nome, a.cognome AS atleta_cognome,
+               a.sesso AS atleta_sesso,
+               COALESCE(i.categoria_override, i.categoria_calc) AS categoria,
+               r.id AS risultato_id, r.tempo_ms, r.tempo_override,
+               r.stato, r.ordine_arrivo, r.note_arbitro
+        FROM iscrizioni i
+        JOIN atleti a ON a.id = i.atleta_id
+        LEFT JOIN risultati r ON r.iscrizione_id = i.id
+        WHERE i.gara_id = ?
+        ORDER BY CAST(i.pettorale AS INTEGER), i.pettorale
+    """, (gara_id,)).fetchall()
+
+
+def update_stato(conn: sqlite3.Connection, risultato_id: int, stato: str) -> None:
+    conn.execute("UPDATE risultati SET stato=? WHERE id=?", (stato, risultato_id))
+    conn.commit()
+
+
+def update_tempo_override(conn: sqlite3.Connection, risultato_id: int, override: Optional[str]) -> None:
+    conn.execute("UPDATE risultati SET tempo_override=? WHERE id=?", (override, risultato_id))
+    conn.commit()
+
+
+def upsert_stato(conn: sqlite3.Connection, iscrizione_id: int, stato: str) -> int:
+    row = conn.execute("SELECT id FROM risultati WHERE iscrizione_id=?", (iscrizione_id,)).fetchone()
+    if row:
+        conn.execute("UPDATE risultati SET stato=? WHERE id=?", (stato, row['id']))
+        conn.commit()
+        return row['id']
+    cur = conn.execute(
+        "INSERT INTO risultati (iscrizione_id, stato) VALUES (?,?)",
+        (iscrizione_id, stato),
+    )
+    conn.commit()
+    return cur.lastrowid

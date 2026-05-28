@@ -9,6 +9,7 @@ from ui.eventi.lista import EventiLista
 from ui.gare.lista import GareLista
 from ui.gare.iscrizioni import IscrizioniPanel
 from ui.cronometro.operatore import CronometroPanel
+from ui.classifiche.panel import ClassifichePanel
 
 _NAV_STYLE_ACTIVE = """
     QPushButton {
@@ -78,6 +79,7 @@ class MainWindow(QMainWindow):
         self._gare = GareLista()
         self._gare.apri_iscrizioni.connect(self._on_apri_iscrizioni)
         self._gare.apri_cronometro.connect(self._on_apri_cronometro)
+        self._gare.apri_classifica.connect(self._on_apri_classifica)
         self._gare.indietro.connect(lambda: self._navigate(_IDX_EVENTI))
         self.stack.addWidget(self._gare)
 
@@ -91,15 +93,17 @@ class MainWindow(QMainWindow):
         self._cronometro.indietro.connect(self._on_cronometro_indietro)
         self.stack.addWidget(self._cronometro)
 
-        # 5 – Classifiche (placeholder)
-        self.stack.addWidget(self._placeholder("Classifiche"))
+        # 5 – Classifiche
+        self._classifiche = ClassifichePanel()
+        self._classifiche.indietro.connect(lambda: self._navigate(_IDX_GARE))
+        self.stack.addWidget(self._classifiche)
 
         nav_items = [
             ("Atleti",      _IDX_ATLETI,      True),
             ("Eventi",      _IDX_EVENTI,      True),
             ("Gare",        _IDX_GARE,        True),
             ("Cronometro",  _IDX_CRONOMETRO,  True),
-            ("Classifiche", _IDX_CLASSIFICHE, False),
+            ("Classifiche", _IDX_CLASSIFICHE, True),
         ]
         for label, idx, ready in nav_items:
             btn = QPushButton(label)
@@ -144,6 +148,10 @@ class MainWindow(QMainWindow):
     def _on_apri_cronometro(self, gara_id: int) -> None:
         self._cronometro.set_gara(gara_id)
         self._navigate(_IDX_CRONOMETRO)
+
+    def _on_apri_classifica(self, gara_id: int) -> None:
+        self._classifiche.set_gara(gara_id)
+        self._navigate(_IDX_CLASSIFICHE)
 
     def _on_cronometro_indietro(self) -> None:
         self._navigate(_IDX_GARE)
