@@ -15,6 +15,7 @@ from db.queries import eventi as qev
 from db.queries import risultati as qr
 from logic.classifica import RigaClassifica, from_row, calcola_classifica
 from logic.export_xlsx import esporta_xlsx
+from logic.export_pdf import esporta_pdf
 from utils.tempo import ms_to_str, str_to_ms
 
 _ID_ROLE = Qt.ItemDataRole.UserRole
@@ -107,6 +108,10 @@ class ClassifichePanel(QWidget):
         self.btn_xlsx.clicked.connect(self._on_esporta_xlsx)
         self.btn_xlsx.setEnabled(False)
         top.addWidget(self.btn_xlsx)
+        self.btn_pdf = QPushButton("Esporta PDF")
+        self.btn_pdf.clicked.connect(self._on_esporta_pdf)
+        self.btn_pdf.setEnabled(False)
+        top.addWidget(self.btn_pdf)
         layout.addLayout(top)
 
         self.lbl_gara = QLabel("Classifica")
@@ -174,7 +179,9 @@ class ClassifichePanel(QWidget):
         self._nome_evento = ev_nome
         rows = qr.get_classifica_raw(conn, self._gara_id)
         self._righe = calcola_classifica([from_row(r) for r in rows])
-        self.btn_xlsx.setEnabled(bool(self._righe))
+        has_data = bool(self._righe)
+        self.btn_xlsx.setEnabled(has_data)
+        self.btn_pdf.setEnabled(has_data)
         self._fill_all()
 
     # ── Fill tables ───────────────────────────────────────────────────────
@@ -276,6 +283,23 @@ class ClassifichePanel(QWidget):
             return
         try:
             dest = esporta_xlsx(self._righe, self._nome_gara, self._nome_evento, dest_path=path)
+            QMessageBox.information(self, "Export completato", f"File salvato in:\n{dest}")
+        except Exception as e:
+            QMessageBox.critical(self, "Errore export", str(e))
+
+    def _on_esporta_pdf(self) -> None:
+        if not self._righe:
+            return
+        safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in self._nome_gara)
+        default_name = f"classifica_{safe}.pdf"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salva classifica PDF", default_name,
+            "PDF (*.pdf);;Tutti i file (*)"
+        )
+        if not path:
+            return
+        try:
+            dest = esporta_pdf(self._righe, self._nome_gara, self._nome_evento, dest_path=path)
             QMessageBox.information(self, "Export completato", f"File salvato in:\n{dest}")
         except Exception as e:
             QMessageBox.critical(self, "Errore export", str(e))
