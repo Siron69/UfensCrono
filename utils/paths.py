@@ -2,6 +2,19 @@ import sys
 import os
 
 
+def get_resource_path(relative_path: str) -> str:
+    """Percorso assoluto a un file risorsa (funziona sia in sviluppo che nel .exe PyInstaller).
+
+    In sviluppo:  <project_root>/<relative_path>
+    In .exe:      <sys._MEIPASS>/<relative_path>
+    """
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        base = sys._MEIPASS
+    else:
+        base = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    return os.path.normpath(os.path.join(base, relative_path))
+
+
 def get_data_dir() -> str:
     """
     Restituisce il percorso della cartella 'data/'.

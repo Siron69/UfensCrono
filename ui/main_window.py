@@ -3,6 +3,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QStackedWidget, QLabel, QFrame,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
+from utils.paths import get_resource_path
 
 from ui.atleti.lista import AtletiLista
 from ui.eventi.lista import EventiLista
@@ -59,9 +61,28 @@ class MainWindow(QMainWindow):
         sb.setContentsMargins(12, 20, 12, 20)
         sb.setSpacing(4)
 
-        logo = QLabel("UfensCrono")
-        logo.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e293b; padding: 0 4px 16px 4px;")
-        sb.addWidget(logo)
+        # ── Logo sidebar ──────────────────────────────────────────────────
+        logo_pix = QPixmap(get_resource_path('ui/media/logoUfens.png'))
+        if not logo_pix.isNull():
+            logo_img = QLabel()
+            logo_img.setPixmap(
+                logo_pix.scaled(
+                    120, 64,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            logo_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logo_img.setStyleSheet("padding-bottom: 4px;")
+            sb.addWidget(logo_img)
+
+        logo_text = QLabel("UfensCrono")
+        logo_text.setStyleSheet(
+            "font-size: 15px; font-weight: bold; color: #1e293b;"
+            "padding: 0 4px 16px 4px;"
+        )
+        logo_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sb.addWidget(logo_text)
 
         # ── Stack ────────────────────────────────────────────────────────
         self.stack = QStackedWidget()

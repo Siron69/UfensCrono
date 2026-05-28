@@ -57,11 +57,12 @@ pip install pyinstaller
 ### 2. Genera il .exe
 
 ```
-pyinstaller --onefile --windowed --name UfensCrono main.py
+pyinstaller --onefile --windowed --name UfensCrono --add-data "ui/media;ui/media" main.py
 ```
 
 - `--onefile` → tutto in un singolo file `.exe`
 - `--windowed` → nessuna finestra nera di terminale in background
+- `--add-data "ui/media;ui/media"` → include il logo e le risorse grafiche nell'eseguibile
 
 Il file viene creato in `dist\UfensCrono.exe`.
 
